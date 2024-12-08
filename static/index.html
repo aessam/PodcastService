@@ -49,6 +49,28 @@
             border-bottom: 2px solid #000;
             font-weight: 500;
         }
+        .subscription-section {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .podcast-result {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .podcast-info {
+            margin-left: 15px;
+        }
+        .episode {
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -465,6 +487,114 @@
         }
 
         ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+
+    <div class="subscription-section">
+        <div class="podcast-subscription">
+            <h3>Subscribe to Podcast</h3>
+            <div class="search-box">
+                <input type="text" id="podcast-search" placeholder="Search podcasts...">
+                <button onclick="searchPodcasts()">Search</button>
+            </div>
+            <div id="podcast-results"></div>
+        </div>
+
+        <div class="youtube-subscription">
+            <h3>Subscribe to YouTube Channel</h3>
+            <input type="text" id="youtube-url" placeholder="Enter YouTube channel URL">
+            <button onclick="subscribeToYouTube()">Subscribe</button>
+        </div>
+
+        <div class="subscriptions">
+            <h3>Your Subscriptions</h3>
+            <button onclick="refreshEpisodes()">Refresh Episodes</button>
+            <div id="subscription-list"></div>
+        </div>
+
+        <div class="episodes">
+            <h3>Latest Episodes</h3>
+            <div id="episode-list"></div>
+        </div>
+    </div>
+
+    <script>
+        async function searchPodcasts() {
+            const query = document.getElementById('podcast-search').value;
+            const response = await fetch(`/api/search/podcasts?q=${encodeURIComponent(query)}`);
+            const results = await response.json();
+            displayPodcastResults(results);
+        }
+
+        function displayPodcastResults(results) {
+            const container = document.getElementById('podcast-results');
+            container.innerHTML = results.map(podcast => `
+                <div class="podcast-result">
+                    <img src="${podcast.artwork}" alt="${podcast.title}" width="60">
+                    <div class="podcast-info">
+                        <h4>${podcast.title}</h4>
+                        <p>${podcast.author}</p>
+                        <button onclick="subscribeToPodcast('${podcast.id}', '${podcast.feed_url}')">
+                            Subscribe
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function subscribeToPodcast(podcastId, feedUrl) {
+            const response = await fetch('/api/subscribe/podcast', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id: podcastId, feed_url: feedUrl})
+            });
+            if (response.ok) {
+                alert('Successfully subscribed to podcast!');
+                loadSubscriptions();
+            }
+        }
+
+        async function subscribeToYouTube() {
+            const channelUrl = document.getElementById('youtube-url').value;
+            const response = await fetch('/api/subscribe/youtube', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({url: channelUrl})
+            });
+            if (response.ok) {
+                alert('Successfully subscribed to YouTube channel!');
+                loadSubscriptions();
+            }
+        }
+
+        async function refreshEpisodes() {
+            const response = await fetch('/api/refresh-episodes');
+            const episodes = await response.json();
+            displayEpisodes(episodes);
+        }
+
+        function displayEpisodes(episodes) {
+            const container = document.getElementById('episode-list');
+            container.innerHTML = '';
+            
+            // Display podcast episodes
+            episodes.podcast.forEach(episode => {
+                container.innerHTML += `
+                    <div class="episode">
+                        <h4>${episode.title}</h4>
+                        <p>${episode.description}</p>
+                        <button onclick="processEpisode('${episode.id}')">Process</button>
+                    </div>
+                `;
+            });
+
+            // Display YouTube episodes
+            episodes.youtube.forEach(episode => {
+                // Similar display logic for YouTube episodes
+            });
+        }
+
+        // Load subscriptions on page load
+        window.addEventListener('load', loadSubscriptions);
     </script>
 </body>
 </html> 

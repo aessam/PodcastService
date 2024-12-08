@@ -8,6 +8,7 @@ import hashlib
 import logging
 from langdetect import detect, DetectorFactory
 import yt_dlp
+import requests
 
 from podcast_service.src.core.transcriber import Transcriber
 from podcast_service.src.core.podcast_fetcher import PodcastFetcher
@@ -914,3 +915,76 @@ Format your response as a JSON object with these exact keys:
         except Exception as e:
             print(f"Error refreshing metadata: {e}")
             raise RuntimeError(f"Failed to refresh metadata: {e}")
+
+    def search_podcasts(self, query: str) -> List[Dict]:
+        """Search for podcasts using iTunes API"""
+        itunes_api = f"https://itunes.apple.com/search?term={query}&entity=podcast"
+        response = requests.get(itunes_api)
+        if response.status_code == 200:
+            results = response.json().get('results', [])
+            return [
+                {
+                    'id': item['collectionId'],
+                    'title': item['collectionName'],
+                    'author': item['artistName'],
+                    'feed_url': item['feedUrl'],
+                    'artwork': item['artworkUrl600']
+                }
+                for item in results
+            ]
+        return []
+
+    def subscribe_to_podcast(self, podcast_id: str, feed_url: str) -> bool:
+        """Subscribe to a podcast feed"""
+        try:
+            subscription = {
+                'id': podcast_id,
+                'feed_url': feed_url,
+                'type': 'podcast'
+            }
+            self.cache_manager.save_subscription(subscription)
+            return True
+        except Exception as e:
+            print(f"Error subscribing to podcast: {e}")
+            return False
+
+    def subscribe_to_youtube(self, channel_url: str) -> bool:
+        """Subscribe to a YouTube channel"""
+        try:
+            # Extract channel ID from URL
+            channel_id = self._extract_youtube_channel_id(channel_url)
+            if not channel_id:
+                return False
+            
+            subscription = {
+                'id': channel_id,
+                'url': channel_url,
+                'type': 'youtube'
+            }
+            self.cache_manager.save_subscription(subscription)
+            return True
+        except Exception as e:
+            print(f"Error subscribing to YouTube channel: {e}")
+            return False
+
+    def _extract_youtube_channel_id(self, url: str) -> Optional[str]:
+        """Extract YouTube channel ID from URL"""
+        # Basic implementation - you might want to enhance this
+        if 'youtube.com/channel/' in url:
+            return url.split('youtube.com/channel/')[-1].split('/')[0]
+        return None
+
+    def refresh_episodes(self) -> Dict:
+        """Refresh episodes for all subscriptions"""
+        subscriptions = self.cache_manager.get_all_subscriptions()
+        new_episodes = {'podcast': [], 'youtube': []}
+        
+        for sub in subscriptions:
+            if sub['type'] == 'podcast':
+                episodes = self.podcast_fetcher.fetch_episodes(sub['feed_url'])
+                new_episodes['podcast'].extend(episodes)
+            elif sub['type'] == 'youtube':
+                # Implement YouTube episode fetching
+                pass
+        
+        return new_episodes

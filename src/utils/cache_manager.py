@@ -1,9 +1,10 @@
 from pathlib import Path
 import json
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 import hashlib
 import shutil
+import os
 
 class CacheManager:
     def __init__(self, cache_dir: Path):
@@ -15,6 +16,45 @@ class CacheManager:
         self.transcripts_cache.mkdir(exist_ok=True)
         self.metadata_cache = self.cache_dir / "metadata"
         self.metadata_cache.mkdir(exist_ok=True)
+        self.subscriptions_file = os.path.join(self.cache_dir, "subscriptions.json")
+        self._ensure_cache_dir()
+
+    def _ensure_cache_dir(self):
+        """Ensure cache directory exists"""
+        if not os.path.exists(self.cache_dir):
+            os.makedirs(self.cache_dir)
+        if not os.path.exists(self.subscriptions_file):
+            self._save_subscriptions([])
+
+    def _save_subscriptions(self, subscriptions: List[Dict]):
+        """Save subscriptions to file"""
+        with open(self.subscriptions_file, 'w') as f:
+            json.dump(subscriptions, f)
+
+    def save_subscription(self, subscription: Dict):
+        """Save a new subscription"""
+        subscriptions = self.get_all_subscriptions()
+        # Check if subscription already exists
+        if not any(sub['id'] == subscription['id'] for sub in subscriptions):
+            subscriptions.append(subscription)
+            self._save_subscriptions(subscriptions)
+
+    def get_all_subscriptions(self) -> List[Dict]:
+        """Get all subscriptions"""
+        try:
+            with open(self.subscriptions_file, 'r') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return []
+
+    def remove_subscription(self, subscription_id: str) -> bool:
+        """Remove a subscription by ID"""
+        subscriptions = self.get_all_subscriptions()
+        filtered_subs = [sub for sub in subscriptions if sub['id'] != subscription_id]
+        if len(filtered_subs) < len(subscriptions):
+            self._save_subscriptions(filtered_subs)
+            return True
+        return False
 
     def _get_cache_key(self, key: str) -> str:
         """Generate a stable cache key."""
