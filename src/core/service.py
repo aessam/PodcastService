@@ -712,21 +712,42 @@ Format your response as a JSON object with these exact keys:
             tts_dir = self.data_dir / "tts"
             tts_dir.mkdir(parents=True, exist_ok=True)
             
-            # Detect language and get voice settings
-            lang_code = self._detect_language(text)
+            # Detect language
+            lang_code = self._detect_language_from_text(text)
             voice, speed = self._get_voice_for_language(lang_code)
             logger.info(f"Using voice '{voice}' with speed {speed} for language '{lang_code}'")
             
+            # Calculate max chunk size for TTS
+            # OpenAI TTS has a limit of 4096 tokens
+            max_tts_tokens = 4096
+            chars_per_token = 2 if lang_code in ['ar', 'he', 'fa'] else 4
+            max_chunk_size = max_tts_tokens * chars_per_token
+            
             # Generate unique filename
             file_hash = hashlib.sha256(text.encode()).hexdigest()[:8]
-            output_path = tts_dir / f"{filename}_{file_hash}.mp3"
             
-            # Check if audio already exists
-            if output_path.exists():
-                return str(output_path)
+            # If text is small enough, generate single file
+            if len(text) <= max_chunk_size:
+                output_path = tts_dir / f"{filename}_{file_hash}.mp3"
+                
+                # Check if audio already exists
+                if output_path.exists():
+                    return [str(output_path)]
+                
+                # Generate TTS using OpenAI
+                response = self.openai_client.audio.speech.create(
+                    model="tts-1",
+                    voice=voice,
+                    speed=float(speed),
+                    input=text
+                )
+                
+                # Save the audio file
+                response.stream_to_file(str(output_path))
+                return [str(output_path)]
             
-            # Split text into chunks
-            text_chunks = self._chunk_text(text)
+            # For longer text, split into chunks
+            text_chunks = self._chunk_text(text, max_chunk_size=max_chunk_size)
             logger.info(f"Split text into {len(text_chunks)} chunks")
             audio_paths = []
             
@@ -760,7 +781,7 @@ Format your response as a JSON object with these exact keys:
             return audio_paths if audio_paths else None
             
         except Exception as e:
-            logger.error(f"Error generating TTS: {e}", exc_info=True)
+            logger.error(f"Error generating TTS: {e}")
             return None
 
     def get_summary_tts(self, episode_id: str) -> Optional[Dict[str, Union[str, List[str]]]]:
