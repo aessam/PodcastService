@@ -5,32 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Podcast Service</title>
     
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- React Production Build -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <!-- React and dependencies -->
+    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
     
-    <!-- Custom CSS -->
-    <style>
-        /* Form styles */
-        input[type="text"],
-        input[type="url"],
-        input[type="email"],
-        input[type="password"] {
-            @apply appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm;
-        }
-        
-        button[type="submit"] {
-            @apply w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500;
-        }
-        
-        button[disabled] {
-            @apply opacity-50 cursor-not-allowed;
-        }
-
+    <!-- Tailwind CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    
+    <style type="text/css">
         .form-group {
             @apply space-y-2;
         }
@@ -61,312 +44,109 @@
         window.Components = {};
     </script>
 
-    <script type="text/babel" data-type="module">
-        // Auth Component
-        window.Components.Auth = function Auth({ onLogin }) {
-            const [isLogin, setIsLogin] = React.useState(true);
-            const [error, setError] = React.useState('');
-            
-            const handleSubmit = async (e) => {
-                e.preventDefault();
-                setError('');
-                
-                const formData = new FormData(e.target);
-                const data = {
-                    username: formData.get('username'),
-                    password: formData.get('password'),
-                    ...(isLogin ? {} : { email: formData.get('email') })
-                };
-                
-                try {
-                    const response = await fetch(`/api/${isLogin ? 'login' : 'register'}`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify(data)
-                    });
-                    
-                    if (!response.ok) {
-                        const error = await response.json();
-                        throw new Error(error.detail || 'Authentication failed');
-                    }
-                    
-                    const result = await response.json();
-                    onLogin(result.user);
-                } catch (error) {
-                    setError(error.message);
-                }
-            };
-            
+    <script type="text/babel">
+        // Summary Section Component
+        function SummarySection({ title, content }) {
+            if (!content || (Array.isArray(content) && content.length === 0)) {
+                return null;
+            }
+
             return (
-                <div className="min-h-screen flex items-center justify-center bg-gray-100 py-12 px-4 sm:px-6 lg:px-8">
-                    <div className="max-w-md w-full space-y-8">
-                        <div>
-                            <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-                                {isLogin ? 'Sign in to your account' : 'Create a new account'}
-                            </h2>
-                        </div>
-                        
-                        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-                            <div className="rounded-md shadow-sm -space-y-px">
-                                {!isLogin && (
-                                    <div>
-                                        <label htmlFor="email" className="sr-only">Email address</label>
-                                        <input
-                                            id="email"
-                                            name="email"
-                                            type="email"
-                                            required
-                                            className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                                            placeholder="Email address"
-                                        />
-                                    </div>
-                                )}
-                                <div>
-                                    <label htmlFor="username" className="sr-only">Username</label>
-                                    <input
-                                        id="username"
-                                        name="username"
-                                        type="text"
-                                        required
-                                        className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                                        placeholder="Username"
-                                    />
-                                </div>
-                                <div>
-                                    <label htmlFor="password" className="sr-only">Password</label>
-                                    <input
-                                        id="password"
-                                        name="password"
-                                        type="password"
-                                        required
-                                        className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                                        placeholder="Password"
-                                    />
-                                </div>
-                            </div>
-                            
-                            {error && (
-                                <div className="text-red-500 text-sm text-center">
-                                    {error}
-                                </div>
-                            )}
-                            
-                            <div>
-                                <button
-                                    type="submit"
-                                    className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                                >
-                                    {isLogin ? 'Sign in' : 'Register'}
-                                </button>
-                            </div>
-                            
-                            <div className="text-sm text-center">
-                                <button
-                                    type="button"
-                                    onClick={() => setIsLogin(!isLogin)}
-                                    className="font-medium text-indigo-600 hover:text-indigo-500"
-                                >
-                                    {isLogin ? 'Need an account? Register' : 'Already have an account? Sign in'}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
+                <div className="mt-4">
+                    <h5 className="text-sm font-semibold text-gray-900">{title}</h5>
+                    {Array.isArray(content) ? (
+                        <ul className="mt-2 list-disc list-inside text-sm text-gray-600 space-y-1">
+                            {content.map((item, index) => (
+                                <li key={index}>{item}</li>
+                            ))}
+                        </ul>
+                    ) : (
+                        <p className="mt-2 text-sm text-gray-600 whitespace-pre-wrap">{content}</p>
+                    )}
                 </div>
             );
         }
-    </script>
 
-    <script type="text/babel" data-type="module">
         // Dashboard Component
-        window.Components.Dashboard = function Dashboard() {
+        window.Components.Dashboard = function Dashboard({ settings, setSettings }) {
             const [url, setUrl] = React.useState('');
             const [title, setTitle] = React.useState('');
             const [processing, setProcessing] = React.useState(false);
             const [message, setMessage] = React.useState(null);
             const [history, setHistory] = React.useState([]);
             const [loadingHistory, setLoadingHistory] = React.useState(true);
-            const [selectedContent, setSelectedContent] = React.useState(null);
-            const [generatingTTS, setGeneratingTTS] = React.useState(false);
-            
-            // Fetch history when component mounts
+            const [selectedEpisode, setSelectedEpisode] = React.useState(null);
+
             React.useEffect(() => {
+                // Load history when component mounts
                 fetchHistory();
             }, []);
-            
+
             const fetchHistory = async () => {
                 try {
                     const response = await fetch('/api/history');
-                    if (!response.ok) {
-                        throw new Error('Failed to fetch history');
+                    if (response.ok) {
+                        const data = await response.json();
+                        setHistory(data);
                     }
-                    const data = await response.json();
-                    setHistory(data);
                 } catch (error) {
                     console.error('Error fetching history:', error);
+                    setMessage({
+                        type: 'error',
+                        text: 'Failed to load history'
+                    });
                 } finally {
                     setLoadingHistory(false);
                 }
             };
 
-            const viewTranscript = async (episodeUrl) => {
-                try {
-                    const encodedUrl = encodeURIComponent(episodeUrl);
-                    const response = await fetch(`/api/files/transcript/${encodedUrl}`);
-                    if (!response.ok) {
-                        const error = await response.json();
-                        throw new Error(error.detail || 'Failed to fetch transcript');
-                    }
-                    const data = await response.json();
-                    setSelectedContent({
-                        type: 'transcript',
-                        content: data.transcript,
-                        title: 'Transcript'
-                    });
-                } catch (error) {
-                    console.error('Error fetching transcript:', error);
-                    setMessage({
-                        type: 'error',
-                        text: `Error fetching transcript: ${error.message}`
-                    });
-                }
-            };
-
-            const viewSummary = async (episodeUrl) => {
-                try {
-                    const encodedUrl = encodeURIComponent(episodeUrl);
-                    const response = await fetch(`/api/files/summary/${encodedUrl}`);
-                    if (!response.ok) {
-                        const error = await response.json();
-                        throw new Error(error.detail || 'Failed to fetch summary');
-                    }
-                    const data = await response.json();
-                    console.log('Summary data received:', data);
-                    setSelectedContent({
-                        type: 'summary',
-                        content: data.summary,
-                        title: 'Summary'
-                    });
-                } catch (error) {
-                    console.error('Error fetching summary:', error);
-                    setMessage({
-                        type: 'error',
-                        text: `Error fetching summary: ${error.message}`
-                    });
-                }
-            };
-            
             const handleSubmit = async (e) => {
                 e.preventDefault();
                 setProcessing(true);
                 setMessage(null);
-                
+
                 try {
-                    // Create URL-encoded parameters
-                    const params = new URLSearchParams();
-                    params.append('url', url);
+                    const params = new URLSearchParams({ url });
                     if (title) {
                         params.append('title', title);
                     }
-                    
-                    const response = await fetch('/api/process/episode?' + params.toString(), {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        }
+
+                    const response = await fetch(`/api/process/episode?${params.toString()}`, {
+                        method: 'POST'
                     });
-                    
-                    const result = await response.json();
-                    
+
                     if (!response.ok) {
-                        throw new Error(result.detail || 'Processing failed');
+                        throw new Error('Failed to process episode');
                     }
-                    
+
                     setMessage({
                         type: 'success',
-                        text: 'Processing started successfully! Check history below for updates.'
+                        text: 'Processing started successfully!'
                     });
                     setUrl('');
                     setTitle('');
                     
-                    // Refresh history after successful submission
+                    // Refresh history
                     fetchHistory();
                 } catch (error) {
                     console.error('Processing error:', error);
                     setMessage({
                         type: 'error',
-                        text: error.message || 'Failed to process episode'
+                        text: error.message
                     });
                 } finally {
                     setProcessing(false);
                 }
             };
-            
+
             const formatDate = (dateString) => {
                 return new Date(dateString).toLocaleString();
             };
-            
-            const generateTTS = async (content, filename) => {
-                try {
-                    setGeneratingTTS(true);
-                    
-                    console.log('Content received:', content);
-                    
-                    // Extract the actual summary text
-                    let summaryText = '';
-                    if (typeof content === 'string') {
-                        summaryText = content;
-                        console.log('Content is string:', summaryText);
-                    } else if (typeof content === 'object') {
-                        console.log('Content is object:', JSON.stringify(content, null, 2));
-                        // The content should be the actual summary text now
-                        summaryText = content;
-                    }
-                    
-                    console.log('Final summary text:', summaryText);
-                    
-                    if (!summaryText || !summaryText.trim()) {
-                        throw new Error('No summary text available');
-                    }
-                    
-                    // Generate TTS
-                    const response = await fetch('/api/tts/generate?' + new URLSearchParams({
-                        text: summaryText,
-                        filename: filename
-                    }), {
-                        method: 'POST'
-                    });
-                    
-                    if (!response.ok) {
-                        const error = await response.json();
-                        throw new Error(error.detail || 'Failed to generate TTS');
-                    }
-                    
-                    const data = await response.json();
-                    console.log('TTS response:', data);
-                    
-                    // Update the modal with audio player and metadata
-                    setSelectedContent(prev => ({
-                        ...prev,
-                        audioUrl: `/api/tts/${data.audio_path.split('/').pop()}`,
-                        audioMetadata: {
-                            generatedAt: new Date().toISOString(),
-                            summaryText: summaryText,
-                            filename: data.audio_path.split('/').pop()
-                        }
-                    }));
-                } catch (error) {
-                    console.error('Error generating TTS:', error);
-                    setMessage({
-                        type: 'error',
-                        text: `Failed to generate audio: ${error.message}`
-                    });
-                } finally {
-                    setGeneratingTTS(false);
-                }
+
+            const isEpisodeSelected = (episode) => {
+                return selectedEpisode && selectedEpisode.url === episode.url;
             };
-            
+
             return (
                 <div className="space-y-8">
                     {/* Process New Episode Form */}
@@ -396,7 +176,7 @@
                                         />
                                     </div>
                                 </div>
-                                
+
                                 <div>
                                     <label htmlFor="title" className="block text-sm font-medium text-gray-700">
                                         Custom Title (Optional)
@@ -413,7 +193,7 @@
                                         />
                                     </div>
                                 </div>
-                                
+
                                 <div>
                                     <button
                                         type="submit"
@@ -428,7 +208,7 @@
                                     </button>
                                 </div>
                             </form>
-                            
+
                             {message && (
                                 <div className={`mt-4 p-4 rounded-md ${
                                     message.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
@@ -438,53 +218,7 @@
                             )}
                         </div>
                     </div>
-                    
-                    {/* Processing Steps */}
-                    <div className="bg-white shadow sm:rounded-lg">
-                        <div className="px-4 py-5 sm:p-6">
-                            <h3 className="text-lg leading-6 font-medium text-gray-900">
-                                Processing Steps
-                            </h3>
-                            <div className="mt-4 space-y-4">
-                                <div className="flex items-center space-x-4">
-                                    <div className="flex-shrink-0">
-                                        <span className="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center">
-                                            1
-                                        </span>
-                                    </div>
-                                    <div>
-                                        <p className="text-sm font-medium text-gray-900">Download</p>
-                                        <p className="text-sm text-gray-500">Downloads the podcast episode audio</p>
-                                    </div>
-                                </div>
-                                
-                                <div className="flex items-center space-x-4">
-                                    <div className="flex-shrink-0">
-                                        <span className="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center">
-                                            2
-                                        </span>
-                                    </div>
-                                    <div>
-                                        <p className="text-sm font-medium text-gray-900">Transcribe</p>
-                                        <p className="text-sm text-gray-500">Transcribes the audio using MLX Whisper</p>
-                                    </div>
-                                </div>
-                                
-                                <div className="flex items-center space-x-4">
-                                    <div className="flex-shrink-0">
-                                        <span className="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center">
-                                            3
-                                        </span>
-                                    </div>
-                                    <div>
-                                        <p className="text-sm font-medium text-gray-900">Summarize</p>
-                                        <p className="text-sm text-gray-500">Generates a summary using GPT-4</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
+
                     {/* Processing History */}
                     <div className="bg-white shadow sm:rounded-lg">
                         <div className="px-4 py-5 sm:p-6">
@@ -499,7 +233,7 @@
                                 ) : (
                                     <div className="space-y-4">
                                         {history.map((episode) => (
-                                            <div key={episode.url} className="border rounded-lg p-4">
+                                            <div key={episode.id} className="border rounded-lg p-4">
                                                 <div className="flex justify-between items-start">
                                                     <div>
                                                         <h4 className="text-sm font-medium text-gray-900">
@@ -509,23 +243,293 @@
                                                         <p className="text-xs text-gray-400 mt-1">
                                                             Processed: {formatDate(episode.processed_at)}
                                                         </p>
-                                                    </div>
-                                                    <div className="flex space-x-2">
-                                                        {episode.transcript_path && (
-                                                            <button
-                                                                onClick={() => viewTranscript(episode.url)}
-                                                                className="text-sm text-indigo-600 hover:text-indigo-500"
-                                                            >
-                                                                View Transcript
-                                                            </button>
+                                                        
+                                                        <div className="mt-2 space-x-4">
+                                                            {/* Summary Toggle Button */}
+                                                            {episode.has_summary && (
+                                                                <button
+                                                                    onClick={async () => {
+                                                                        if (!isEpisodeSelected(episode)) {
+                                                                            try {
+                                                                                const response = await fetch(`/api/summary/${encodeURIComponent(episode.url)}`);
+                                                                                if (response.ok) {
+                                                                                    const data = await response.json();
+                                                                                    const updatedEpisode = { 
+                                                                                        ...episode, 
+                                                                                        summary: data.summary,
+                                                                                        has_summary: true,
+                                                                                        showTranscript: false
+                                                                                    };
+                                                                                    const newHistory = history.map(ep => 
+                                                                                        ep.id === episode.id ? updatedEpisode : ep
+                                                                                    );
+                                                                                    setHistory(newHistory);
+                                                                                    setSelectedEpisode(updatedEpisode);
+                                                                                } else {
+                                                                                    const errorData = await response.json();
+                                                                                    console.error('Failed to fetch summary:', errorData);
+                                                                                    setMessage({
+                                                                                        type: 'error',
+                                                                                        text: errorData.detail || 'Failed to load summary'
+                                                                                    });
+                                                                                }
+                                                                            } catch (error) {
+                                                                                console.error('Error fetching summary:', error);
+                                                                                setMessage({
+                                                                                    type: 'error',
+                                                                                    text: 'Error loading summary'
+                                                                                });
+                                                                            }
+                                                                        } else {
+                                                                            setSelectedEpisode(null);
+                                                                        }
+                                                                    }}
+                                                                    className="text-sm text-indigo-600 hover:text-indigo-500"
+                                                                >
+                                                                    {isEpisodeSelected(episode) && !episode.showTranscript ? 'Hide Summary' : 'Show Summary'}
+                                                                </button>
+                                                            )}
+
+                                                            {/* Transcript Toggle Button */}
+                                                            {episode.transcript_path && (
+                                                                <button
+                                                                    onClick={async () => {
+                                                                        if (!isEpisodeSelected(episode) || !episode.showTranscript) {
+                                                                            try {
+                                                                                const response = await fetch(`/api/transcript/${encodeURIComponent(episode.url)}`);
+                                                                                if (response.ok) {
+                                                                                    const data = await response.json();
+                                                                                    const updatedEpisode = { 
+                                                                                        ...episode, 
+                                                                                        transcript: data.transcript,
+                                                                                        showTranscript: true,
+                                                                                        summary: null
+                                                                                    };
+                                                                                    const newHistory = history.map(ep => 
+                                                                                        ep.id === episode.id ? updatedEpisode : ep
+                                                                                    );
+                                                                                    setHistory(newHistory);
+                                                                                    setSelectedEpisode(updatedEpisode);
+                                                                                } else {
+                                                                                    const errorData = await response.json();
+                                                                                    console.error('Failed to fetch transcript:', errorData);
+                                                                                    setMessage({
+                                                                                        type: 'error',
+                                                                                        text: errorData.detail || 'Failed to load transcript'
+                                                                                    });
+                                                                                }
+                                                                            } catch (error) {
+                                                                                console.error('Error fetching transcript:', error);
+                                                                                setMessage({
+                                                                                    type: 'error',
+                                                                                    text: 'Error loading transcript'
+                                                                                });
+                                                                            }
+                                                                        } else {
+                                                                            setSelectedEpisode(null);
+                                                                        }
+                                                                    }}
+                                                                    className="text-sm text-indigo-600 hover:text-indigo-500"
+                                                                >
+                                                                    {isEpisodeSelected(episode) && episode.showTranscript ? 'Hide Transcript' : 'Show Transcript'}
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                        
+                                                        {/* Structured Summary */}
+                                                        {isEpisodeSelected(episode) && !episode.showTranscript && episode.summary && (
+                                                            <div className="mt-4 space-y-4 bg-gray-50 p-4 rounded-lg">
+                                                                {episode.summary.comprehensive_summary && (
+                                                                    <div>
+                                                                        <div className="flex justify-between items-center">
+                                                                            <h4 className="text-sm font-semibold text-gray-900">Summary</h4>
+                                                                            <button
+                                                                                onClick={async () => {
+                                                                                    try {
+                                                                                        const response = await fetch(`/api/tts/playlist/${encodeURIComponent(episode.id)}`);
+                                                                                        if (response.ok) {
+                                                                                            const data = await response.json();
+                                                                                            const updatedEpisode = {
+                                                                                                ...episode,
+                                                                                                audioFiles: data.audio_files
+                                                                                            };
+                                                                                            setHistory(history.map(ep =>
+                                                                                                ep.id === episode.id ? updatedEpisode : ep
+                                                                                            ));
+                                                                                            setSelectedEpisode(updatedEpisode);
+                                                                                        } else {
+                                                                                            const errorData = await response.json();
+                                                                                            setMessage({
+                                                                                                type: 'error',
+                                                                                                text: errorData.detail || 'Failed to generate audio'
+                                                                                            });
+                                                                                        }
+                                                                                    } catch (error) {
+                                                                                        console.error('Error generating audio:', error);
+                                                                                        setMessage({
+                                                                                            type: 'error',
+                                                                                            text: 'Error generating audio'
+                                                                                        });
+                                                                                    }
+                                                                                }}
+                                                                                className="text-sm text-indigo-600 hover:text-indigo-500 flex items-center"
+                                                                            >
+                                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                                                                    <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414z" clipRule="evenodd" />
+                                                                                </svg>
+                                                                                Read Aloud
+                                                                            </button>
+                                                                        </div>
+                                                                        {episode.audioFiles && episode.audioFiles.length > 0 && (
+                                                                            <div className="mt-2 mb-4">
+                                                                                <div className="audio-player">
+                                                                                    <audio
+                                                                                        id={`audio-${episode.id}`}
+                                                                                        className="w-full"
+                                                                                        controls
+                                                                                        src={episode.audioFiles[0].url}
+                                                                                        onEnded={(e) => {
+                                                                                            const audioElement = e.target;
+                                                                                            const currentUrl = audioElement.src;
+                                                                                            // Remove the base URL to match with our stored URLs
+                                                                                            const currentPath = currentUrl.split('/api/tts/audio/')[1];
+                                                                                            const currentIndex = episode.audioFiles.findIndex(
+                                                                                                file => file.url === `/api/tts/audio/${currentPath}`
+                                                                                            );
+                                                                                            console.log('Current index:', currentIndex, 'Total files:', episode.audioFiles.length);
+                                                                                            if (currentIndex < episode.audioFiles.length - 1) {
+                                                                                                const nextFile = episode.audioFiles[currentIndex + 1];
+                                                                                                audioElement.src = nextFile.url;
+                                                                                                audioElement.play();
+                                                                                                // Update the playing section text
+                                                                                                const sectionText = audioElement.parentElement.nextElementSibling;
+                                                                                                sectionText.textContent = `Playing: ${nextFile.section} (${currentIndex + 2} of ${episode.audioFiles.length})`;
+                                                                                            }
+                                                                                        }}
+                                                                                    >
+                                                                                        Your browser does not support the audio element.
+                                                                                    </audio>
+                                                                                    <div className="text-xs text-gray-500 mt-1">
+                                                                                        Playing: {episode.audioFiles[0].section} (1 of {episode.audioFiles.length})
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+                                                                        <p className="mt-2 text-sm text-gray-600 whitespace-pre-wrap">
+                                                                            {episode.summary.comprehensive_summary}
+                                                                        </p>
+                                                                    </div>
+                                                                )}
+                                                                
+                                                                {episode.summary.action_items && episode.summary.action_items.length > 0 && (
+                                                                    <div>
+                                                                        <div className="flex justify-between items-center">
+                                                                            <h4 className="text-sm font-semibold text-gray-900">Action Items</h4>
+                                                                        </div>
+                                                                        <ul className="mt-2 list-disc list-inside text-sm text-gray-600">
+                                                                            {episode.summary.action_items.map((item, index) => (
+                                                                                <li key={index}>{item}</li>
+                                                                            ))}
+                                                                        </ul>
+                                                                    </div>
+                                                                )}
+                                                                
+                                                                {episode.summary.key_insights && episode.summary.key_insights.length > 0 && (
+                                                                    <div>
+                                                                        <div className="flex justify-between items-center">
+                                                                            <h4 className="text-sm font-semibold text-gray-900">Key Insights & Nuances</h4>
+                                                                        </div>
+                                                                        <ul className="mt-2 list-disc list-inside text-sm text-gray-600">
+                                                                            {episode.summary.key_insights.map((item, index) => (
+                                                                                <li key={index}>{item}</li>
+                                                                            ))}
+                                                                        </ul>
+                                                                    </div>
+                                                                )}
+                                                                
+                                                                {episode.summary.wisdom && episode.summary.wisdom.length > 0 && (
+                                                                    <div>
+                                                                        <div className="flex justify-between items-center">
+                                                                            <h4 className="text-sm font-semibold text-gray-900">Wisdom & Principles</h4>
+                                                                        </div>
+                                                                        <ul className="mt-2 list-disc list-inside text-sm text-gray-600">
+                                                                            {episode.summary.wisdom.map((item, index) => (
+                                                                                <li key={index}>{item}</li>
+                                                                            ))}
+                                                                        </ul>
+                                                                    </div>
+                                                                )}
+                                                            </div>
                                                         )}
-                                                        {episode.summary_path && (
-                                                            <button
-                                                                onClick={() => viewSummary(episode.url)}
-                                                                className="text-sm text-indigo-600 hover:text-indigo-500"
-                                                            >
-                                                                View Summary
-                                                            </button>
+
+                                                        {/* Transcript Display */}
+                                                        {isEpisodeSelected(episode) && episode.showTranscript && episode.transcript && (
+                                                            <div className="mt-4 bg-gray-50 p-4 rounded-lg">
+                                                                <div className="flex justify-between items-start">
+                                                                    <h4 className="text-sm font-semibold text-gray-900">Transcript</h4>
+                                                                    {!episode.has_summary && (
+                                                                        <button
+                                                                            onClick={async () => {
+                                                                                try {
+                                                                                    const response = await fetch(`/api/generate_summary/${encodeURIComponent(episode.url)}`, {
+                                                                                        method: 'POST'
+                                                                                    });
+                                                                                    if (response.ok) {
+                                                                                        setMessage({
+                                                                                            type: 'success',
+                                                                                            text: 'Summary generation started. This may take a few minutes.'
+                                                                                        });
+                                                                                        // Poll for summary completion
+                                                                                        const checkSummary = async () => {
+                                                                                            const summaryResponse = await fetch(`/api/summary/${encodeURIComponent(episode.url)}`);
+                                                                                            if (summaryResponse.ok) {
+                                                                                                const data = await summaryResponse.json();
+                                                                                                const updatedEpisode = { 
+                                                                                                    ...episode, 
+                                                                                                    summary: data.summary,
+                                                                                                    has_summary: true,
+                                                                                                    showTranscript: false
+                                                                                                };
+                                                                                                const newHistory = history.map(ep => 
+                                                                                                    ep.id === episode.id ? updatedEpisode : ep
+                                                                                                );
+                                                                                                setHistory(newHistory);
+                                                                                                setSelectedEpisode(updatedEpisode);
+                                                                                                setMessage({
+                                                                                                    type: 'success',
+                                                                                                    text: 'Summary generated successfully!'
+                                                                                                });
+                                                                                            } else {
+                                                                                                // If summary is not ready, try again in 5 seconds
+                                                                                                setTimeout(checkSummary, 5000);
+                                                                                            }
+                                                                                        };
+                                                                                        setTimeout(checkSummary, 5000);
+                                                                                    } else {
+                                                                                        const errorData = await response.json();
+                                                                                        setMessage({
+                                                                                            type: 'error',
+                                                                                            text: errorData.detail || 'Failed to generate summary'
+                                                                                        });
+                                                                                    }
+                                                                                } catch (error) {
+                                                                                    console.error('Error generating summary:', error);
+                                                                                    setMessage({
+                                                                                        type: 'error',
+                                                                                        text: 'Error generating summary'
+                                                                                    });
+                                                                                }
+                                                                            }}
+                                                                            className="text-sm text-indigo-600 hover:text-indigo-500"
+                                                                        >
+                                                                            Generate Summary
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                                <p className="mt-2 text-sm text-gray-600 whitespace-pre-wrap font-mono">
+                                                                    {episode.transcript}
+                                                                </p>
+                                                            </div>
                                                         )}
                                                     </div>
                                                 </div>
@@ -536,166 +540,35 @@
                             </div>
                         </div>
                     </div>
-
-                    {/* Content Modal */}
-                    {selectedContent && (
-                        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4">
-                            <div className="bg-white rounded-lg max-w-4xl w-full max-h-[80vh] overflow-hidden">
-                                <div className="px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-                                    <h3 className="text-lg font-medium text-gray-900">
-                                        {selectedContent.title}
-                                    </h3>
-                                    <div className="flex items-center space-x-2">
-                                        {selectedContent.type === 'summary' && (
-                                            <button
-                                                onClick={() => {
-                                                    console.log('Selected content:', selectedContent);
-                                                    generateTTS(
-                                                        selectedContent.content,
-                                                        `${selectedContent.title}_${Date.now()}`
-                                                    );
-                                                }}
-                                                disabled={generatingTTS}
-                                                className={`inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-white ${
-                                                    generatingTTS
-                                                        ? 'bg-indigo-400 cursor-not-allowed'
-                                                        : 'bg-indigo-600 hover:bg-indigo-700'
-                                                }`}
-                                            >
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                                                    <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414zm-2.829 2.828a1 1 0 011.415 0A5.983 5.983 0 0115 10a5.984 5.984 0 01-1.757 4.243 1 1 0 01-1.415-1.415A3.984 3.984 0 0013 10a3.983 3.983 0 00-1.172-2.828 1 1 0 010-1.415z" clipRule="evenodd" />
-                                                </svg>
-                                                {generatingTTS ? 'Generating...' : 'Listen'}
-                                            </button>
-                                        )}
-                                        <button
-                                            onClick={() => setSelectedContent(null)}
-                                            className="text-gray-400 hover:text-gray-500"
-                                        >
-                                            <span className="sr-only">Close</span>
-                                            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                            </svg>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div className="px-4 py-4 overflow-y-auto max-h-[calc(80vh-4rem)]">
-                                    {selectedContent.audioUrl && (
-                                        <div className="mb-4">
-                                            <audio
-                                                controls
-                                                className="w-full"
-                                                src={selectedContent.audioUrl}
-                                                key={selectedContent.audioUrl} // Force audio player to reset when URL changes
-                                            >
-                                                Your browser does not support the audio element.
-                                            </audio>
-                                            {selectedContent.audioMetadata && (
-                                                <div className="mt-2 text-xs text-gray-500">
-                                                    Generated: {new Date(selectedContent.audioMetadata.generatedAt).toLocaleString()}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                    <pre className="whitespace-pre-wrap font-mono text-sm">
-                                        {typeof selectedContent.content === 'string' 
-                                            ? selectedContent.content 
-                                            : JSON.stringify(selectedContent.content, null, 2)
-                                        }
-                                    </pre>
-                                </div>
-                            </div>
-                        </div>
-                    )}
                 </div>
             );
-        }
-    </script>
-
-    <script type="text/babel" data-type="module">
-        const { useState, useEffect } = React;
-
-        // Error Boundary Component
-        class ErrorBoundary extends React.Component {
-            constructor(props) {
-                super(props);
-                this.state = { hasError: false, errorMessage: '' };
-            }
-
-            static getDerivedStateFromError(error) {
-                return { 
-                    hasError: true, 
-                    errorMessage: error && error.message ? error.message : 'Unknown error'
-                };
-            }
-
-            componentDidCatch(error, errorInfo) {
-                console.error('React error:', error, errorInfo);
-            }
-
-            render() {
-                if (this.state.hasError) {
-                    return (
-                        <div className="flex flex-col items-center justify-center min-h-screen p-4">
-                            <div className="text-xl text-red-600 mb-4">Something went wrong</div>
-                            <div className="text-gray-600">{this.state.errorMessage}</div>
-                            <button 
-                                onClick={() => window.location.reload()} 
-                                className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
-                            >
-                                Reload Page
-                            </button>
-                        </div>
-                    );
-                }
-                return this.props.children;
-            }
-        }
+        };
 
         function App() {
-            const [user, setUser] = useState(null);
-            const [view, setView] = useState('dashboard');
-            const [error, setError] = useState(null);
-            const [loading, setLoading] = useState(true);
+            const [settings, setSettings] = React.useState(null);
+            const [error, setError] = React.useState(null);
+            const [loading, setLoading] = React.useState(true);
             
-            useEffect(() => {
-                // Check if user is already logged in
-                const checkAuth = async () => {
+            React.useEffect(() => {
+                // Load settings
+                const loadSettings = async () => {
                     try {
-                        const response = await fetch('/api/user/settings');
+                        const response = await fetch('/api/settings');
                         if (response.ok) {
                             const settings = await response.json();
-                            setUser({ settings });
+                            setSettings(settings);
                         }
                     } catch (error) {
-                        console.error('Auth check failed:', error);
-                        setError('Failed to check authentication status');
+                        console.error('Settings load failed:', error);
+                        setError('Failed to load settings');
                     } finally {
                         setLoading(false);
                     }
                 };
                 
-                checkAuth();
+                loadSettings();
             }, []);
             
-            const handleLogin = (userData) => {
-                setUser(userData);
-                setView('dashboard');
-                setError(null);
-            };
-            
-            const handleLogout = async () => {
-                try {
-                    await fetch('/api/logout', { method: 'POST' });
-                    setUser(null);
-                    setView('login');
-                    setError(null);
-                } catch (error) {
-                    console.error('Logout failed:', error);
-                    setError('Failed to logout');
-                }
-            };
-
             if (loading) {
                 return (
                     <div className="flex items-center justify-center min-h-screen">
@@ -703,7 +576,7 @@
                     </div>
                 );
             }
-
+            
             if (error) {
                 return (
                     <div className="flex items-center justify-center min-h-screen">
@@ -712,80 +585,30 @@
                 );
             }
             
-            if (!user) {
-                return (
-                    <ErrorBoundary>
-                        <Components.Auth onLogin={handleLogin} />
-                    </ErrorBoundary>
-                );
-            }
-            
             return (
-                <ErrorBoundary>
-                    <div className="min-h-screen">
-                        <nav className="bg-indigo-600 text-white shadow-lg">
-                            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                                <div className="flex justify-between h-16">
-                                    <div className="flex items-center">
-                                        <span className="text-xl font-bold">Podcast Service</span>
-                                    </div>
-                                    <div className="flex items-center space-x-4">
-                                        <button
-                                            onClick={() => setView('dashboard')}
-                                            className={`px-3 py-2 rounded-md ${view === 'dashboard' ? 'bg-indigo-700' : 'hover:bg-indigo-700'}`}
-                                        >
-                                            Dashboard
-                                        </button>
-                                        <button
-                                            onClick={handleLogout}
-                                            className="px-3 py-2 rounded-md hover:bg-indigo-700"
-                                        >
-                                            Logout
-                                        </button>
-                                    </div>
+                <div className="min-h-screen">
+                    <nav className="bg-indigo-600 text-white shadow-lg">
+                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                            <div className="flex justify-between h-16">
+                                <div className="flex items-center">
+                                    <span className="text-xl font-bold">Podcast Service</span>
                                 </div>
                             </div>
-                        </nav>
-                        
-                        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                            {view === 'dashboard' && <Components.Dashboard />}
-                        </main>
-                    </div>
-                </ErrorBoundary>
+                        </div>
+                    </nav>
+                    
+                    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                        <Components.Dashboard settings={settings} setSettings={setSettings} />
+                    </main>
+                </div>
             );
         }
 
-        // Initialize React app
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(
-            <ErrorBoundary>
-                <App />
-            </ErrorBoundary>
+        // Render the app
+        ReactDOM.render(
+            <App />,
+            document.getElementById('root')
         );
-    </script>
-
-    <!-- Error handling -->
-    <script>
-        function handleError(error) {
-            console.error('Application error:', error);
-            document.getElementById('root').innerHTML = `
-                <div class="flex flex-col items-center justify-center min-h-screen p-4">
-                    <div class="text-xl text-red-600 mb-4">Error loading application</div>
-                    <div class="text-gray-600">${error.message || 'Unknown error occurred'}</div>
-                    <button onclick="location.reload()" class="mt-4 px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">
-                        Reload Page
-                    </button>
-                </div>
-            `;
-        }
-
-        window.addEventListener('error', function(e) {
-            handleError(e.error || e);
-        });
-
-        window.addEventListener('unhandledrejection', function(e) {
-            handleError(e.reason);
-        });
     </script>
 </body>
 </html> 
