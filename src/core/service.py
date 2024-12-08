@@ -6,6 +6,7 @@ import json
 import uuid
 import hashlib
 import logging
+from langdetect import detect, DetectorFactory
 
 from podcast_service.src.core.transcriber import Transcriber
 from podcast_service.src.core.podcast_fetcher import PodcastFetcher
@@ -15,6 +16,9 @@ from openai import OpenAI
 import io
 
 logger = logging.getLogger(__name__)
+
+# Set seed for consistent language detection
+DetectorFactory.seed = 0
 
 class PodcastService:
     def __init__(self, data_dir: Path = Path("data")):
@@ -88,33 +92,132 @@ class PodcastService:
         self._save_settings()
         return True
     
-    def _chunk_text(self, text: str, max_length: int = 4000) -> List[str]:
-        """Split text into chunks that fit within max length while respecting sentence boundaries."""
-        # Split into sentences
-        sentences = [s.strip() for s in text.replace('\n', ' ').split('.') if s.strip()]
+    def _chunk_text(self, text: str, max_chunk_size: int) -> List[str]:
+        """Split text into chunks of roughly equal size, trying to break at sentence boundaries"""
+        print(f"Chunking text with max size: {max_chunk_size} characters")
+        
+        # Remove extra whitespace but preserve some paragraph breaks
+        text = '\n'.join(' '.join(line.split()) for line in text.split('\n') if line.strip())
+        
+        # If text is small enough, return it as is
+        if len(text) <= max_chunk_size:
+            return [text]
         
         chunks = []
+        
+        # First try to split by paragraphs
+        paragraphs = text.split('\n')
         current_chunk = []
-        current_length = 0
+        current_size = 0
         
-        for sentence in sentences:
-            # Add period back and account for it in length
-            sentence = sentence + '.'
-            sentence_length = len(sentence)
+        for paragraph in paragraphs:
+            # Try to split paragraph into sentences
+            # Look for common sentence endings followed by space and capital letter
+            sentences = []
+            current = []
             
-            if current_length + sentence_length > max_length:
-                if current_chunk:  # Save current chunk if it exists
-                    chunks.append(' '.join(current_chunk))
-                current_chunk = [sentence]
-                current_length = sentence_length
-            else:
-                current_chunk.append(sentence)
-                current_length += sentence_length
+            words = paragraph.split()
+            for i, word in enumerate(words):
+                current.append(word)
+                # Check if this word ends a sentence
+                if (word.endswith(('.', '!', '?')) or 
+                    (i < len(words) - 1 and words[i + 1][0].isupper())):
+                    sentences.append(' '.join(current))
+                    current = []
+            
+            if current:  # Add any remaining words as a sentence
+                sentences.append(' '.join(current))
+            
+            # Process each sentence
+            for sentence in sentences:
+                sentence_size = len(sentence) + 1  # +1 for space
+                
+                # If this single sentence is too big, split it into word groups
+                if sentence_size > max_chunk_size:
+                    # Split into word groups that fit within chunk size
+                    words = sentence.split()
+                    current_group = []
+                    current_group_size = 0
+                    
+                    for word in words:
+                        word_size = len(word) + 1  # +1 for space
+                        if current_group_size + word_size > max_chunk_size:
+                            if current_group:
+                                chunks.append(' '.join(current_group))
+                            current_group = [word]
+                            current_group_size = word_size
+                        else:
+                            current_group.append(word)
+                            current_group_size += word_size
+                    
+                    if current_group:
+                        chunks.append(' '.join(current_group))
+                    continue
+                
+                # If adding this sentence would exceed the chunk size, start a new chunk
+                if current_size + sentence_size > max_chunk_size:
+                    if current_chunk:
+                        chunks.append(' '.join(current_chunk))
+                    current_chunk = [sentence]
+                    current_size = sentence_size
+                else:
+                    current_chunk.append(sentence)
+                    current_size += sentence_size
         
-        if current_chunk:  # Add the last chunk
+        # Add the last chunk if there is one
+        if current_chunk:
             chunks.append(' '.join(current_chunk))
         
+        # If chunks are still too small, merge them to get closer to max_chunk_size
+        if chunks and max(len(chunk) for chunk in chunks) < max_chunk_size // 2:
+            merged_chunks = []
+            current_chunk = []
+            current_size = 0
+            
+            for chunk in chunks:
+                chunk_size = len(chunk) + 1
+                if current_size + chunk_size > max_chunk_size:
+                    if current_chunk:
+                        merged_chunks.append(' '.join(current_chunk))
+                    current_chunk = [chunk]
+                    current_size = chunk_size
+                else:
+                    current_chunk.append(chunk)
+                    current_size += chunk_size
+            
+            if current_chunk:
+                merged_chunks.append(' '.join(current_chunk))
+            chunks = merged_chunks
+        
+        # Log chunk information
+        print(f"\nCreated {len(chunks)} chunks:")
+        for i, chunk in enumerate(chunks, 1):
+            chunk_tokens = self._estimate_tokens(chunk)
+            print(f"Chunk {i}: {len(chunk)} chars, ~{chunk_tokens} tokens")
+        
         return chunks
+
+    def _estimate_tokens(self, text: str) -> int:
+        """Estimate the number of tokens in a text (rough approximation)"""
+        # Detect language if not already detected
+        try:
+            lang_code = self._detect_language_from_text(text[:1000])  # Use first 1000 chars for detection
+            
+            # Different character-to-token ratios for different scripts
+            if lang_code in ['ar', 'he', 'fa']:  # RTL languages
+                chars_per_token = 2
+            elif lang_code in ['zh', 'ja']:  # CJK languages
+                chars_per_token = 1
+            elif lang_code in ['ko']:  # Korean
+                chars_per_token = 1.5
+            else:  # Latin and other scripts
+                chars_per_token = 4
+            
+            return int(len(text) / chars_per_token)
+        except Exception as e:
+            # Fallback to conservative estimate
+            logger.warning(f"Error in token estimation: {e}, using fallback")
+            return len(text) // 4
 
     def _merge_summaries(self, summaries: List[Dict]) -> Dict:
         """Merge multiple chunk summaries into a single coherent summary"""
@@ -144,18 +247,51 @@ class PodcastService:
         
         return merged
 
+    def _detect_language_from_text(self, text: str) -> str:
+        """Detect language using langdetect library"""
+        try:
+            # Detect language
+            lang_code = detect(text)
+            logger.info(f"Detected language: {lang_code}")
+            return lang_code
+        except Exception as e:
+            logger.error(f"Error detecting language: {e}")
+            return "en"  # Default to English if detection fails
+
     def _generate_structured_summary(self, transcript_text: str) -> Dict:
         """Generate a structured summary with key insights and learnings"""
         try:
-            # Split transcript into chunks
-            chunks = self._chunk_text(transcript_text)
+            # Detect language using langdetect
+            lang_code = self._detect_language_from_text(transcript_text)
+            print(f"Detected language: {lang_code}")
+            
+            # Calculate max chunk size based on token limit
+            # GPT-4 limit is 8192 tokens
+            max_tokens = 8192
+            prompt_overhead = 1000  # Tokens for system and user prompt
+            response_overhead = 1000  # Tokens for expected response
+            
+            # Calculate available tokens for the transcript text
+            available_tokens = max_tokens - prompt_overhead - response_overhead
+            
+            # Convert to characters (using 4 chars per token as average)
+            # For Arabic and similar RTL languages, use 2 chars per token
+            chars_per_token = 2 if lang_code in ['ar', 'he', 'fa'] else 4
+            max_chunk_size = available_tokens * chars_per_token
+            
+            print(f"Using max chunk size of {max_chunk_size} characters (targeting ~{available_tokens} tokens per chunk)")
+            print(f"Language: {lang_code}, using {chars_per_token} chars per token")
+            
+            # Split transcript into chunks using the calculated max_chunk_size
+            chunks = self._chunk_text(transcript_text, max_chunk_size=max_chunk_size)
             chunk_summaries = []
             
             # Process each chunk
             for i, chunk in enumerate(chunks, 1):
-                print(f"Processing chunk {i} of {len(chunks)}...")
+                estimated_tokens = self._estimate_tokens(chunk)
+                print(f"Processing chunk {i} of {len(chunks)} (estimated tokens: {estimated_tokens}, characters: {len(chunk)})...")
                 
-                prompt = f"""Please analyze the following section of a podcast transcript and provide a structured summary with these specific sections:
+                prompt = f"""Please analyze the following section of a podcast transcript and provide a structured summary in {lang_code} language with these specific sections:
 
 1. COMPREHENSIVE SUMMARY
 Provide a detailed yet concise summary of the main discussion points and key ideas in this section (1-2 paragraphs).
@@ -168,6 +304,8 @@ Identify subtle but important points, nuanced perspectives, or interesting angle
 
 4. WISDOM & PRINCIPLES
 Extract timeless wisdom, mental models, principles, or philosophical insights shared. Format as a bullet-point list.
+
+IMPORTANT: Your entire response must be in {lang_code} language. Do not translate to any other language.
 
 Transcript Section {i}/{len(chunks)}:
 {chunk}
@@ -184,7 +322,7 @@ Format your response as a JSON object with these exact keys:
                     response = self.openai_client.chat.completions.create(
                         model="gpt-4",
                         messages=[
-                            {"role": "system", "content": "You are an expert at analyzing podcast content and extracting valuable insights. Focus on providing actionable insights and clear, structured summaries. Always return a valid JSON object with the specified structure."},
+                            {"role": "system", "content": f"You are an expert at analyzing podcast content and extracting valuable insights. You must provide your response in {lang_code} language only."},
                             {"role": "user", "content": prompt}
                         ],
                         temperature=0.7,
@@ -230,6 +368,12 @@ Format your response as a JSON object with these exact keys:
                         elif isinstance(summary_dict.get(key), str) and summary_dict[key].strip():
                             # If it's a non-empty string, try to split it into a list
                             valid_summary[key] = [item.strip() for item in summary_dict[key].split('\n') if item.strip()]
+
+                    # Verify the language of the summary
+                    summary_lang = self._detect_language_from_text(valid_summary["comprehensive_summary"])
+                    if summary_lang != lang_code:
+                        print(f"Warning: Summary language ({summary_lang}) doesn't match detected language ({lang_code})")
+                        continue
 
                     # Only add if there's actual content
                     if (valid_summary["comprehensive_summary"] or 
@@ -488,8 +632,79 @@ Format your response as a JSON object with these exact keys:
             print(f"Error saving history: {e}")
             raise RuntimeError(f"Failed to save processing history: {e}")
 
+    def _get_voice_for_language(self, lang_code: str) -> tuple[str, str]:
+        """Get the appropriate voice and speed for the detected language"""
+        # OpenAI TTS voices have different characteristics:
+        # - alloy: Most neutral, good for most languages
+        # - echo: Clear and consistent
+        # - fable: Expressive and dynamic
+        # - nova: Natural and conversational
+        # - onyx: Deep and authoritative
+        # - shimmer: Warm and welcoming
+        
+        # Language groups and their optimal voice settings
+        voice_settings = {
+            # Germanic languages
+            "en": ("nova", "1.0"),    # English
+            "de": ("alloy", "0.9"),   # German
+            "nl": ("alloy", "0.9"),   # Dutch
+            "af": ("alloy", "0.9"),   # Afrikaans
+            "da": ("alloy", "0.9"),   # Danish
+            "no": ("alloy", "0.9"),   # Norwegian
+            "sv": ("alloy", "0.9"),   # Swedish
+            
+            # Romance languages
+            "es": ("alloy", "1.0"),   # Spanish
+            "fr": ("alloy", "1.0"),   # French
+            "it": ("alloy", "1.0"),   # Italian
+            "pt": ("alloy", "1.0"),   # Portuguese
+            "ro": ("alloy", "1.0"),   # Romanian
+            "ca": ("alloy", "1.0"),   # Catalan
+            
+            # Slavic languages
+            "ru": ("echo", "0.9"),    # Russian
+            "uk": ("echo", "0.9"),    # Ukrainian
+            "pl": ("echo", "0.9"),    # Polish
+            "cs": ("echo", "0.9"),    # Czech
+            "sk": ("echo", "0.9"),    # Slovak
+            "bg": ("echo", "0.9"),    # Bulgarian
+            "hr": ("echo", "0.9"),    # Croatian
+            "sr": ("echo", "0.9"),    # Serbian
+            
+            # Asian languages
+            "zh": ("fable", "0.8"),   # Chinese
+            "ja": ("fable", "0.8"),   # Japanese
+            "ko": ("fable", "0.8"),   # Korean
+            "vi": ("fable", "0.9"),   # Vietnamese
+            "th": ("fable", "0.9"),   # Thai
+            "hi": ("fable", "0.9"),   # Hindi
+            "bn": ("fable", "0.9"),   # Bengali
+            "ta": ("fable", "0.9"),   # Tamil
+            
+            # Semitic languages
+            "ar": ("onyx", "0.9"),    # Arabic
+            "he": ("onyx", "0.9"),    # Hebrew
+            
+            # Turkic languages
+            "tr": ("shimmer", "0.9"), # Turkish
+            "az": ("shimmer", "0.9"), # Azerbaijani
+            "uz": ("shimmer", "0.9"), # Uzbek
+            
+            # Other language families
+            "fi": ("alloy", "0.9"),   # Finnish
+            "hu": ("alloy", "0.9"),   # Hungarian
+            "et": ("alloy", "0.9"),   # Estonian
+            "el": ("alloy", "0.9"),   # Greek
+            "id": ("alloy", "0.9"),   # Indonesian
+            "ms": ("alloy", "0.9"),   # Malay
+            "sw": ("alloy", "0.9"),   # Swahili
+        }
+        
+        # Get voice settings or default to alloy with normal speed
+        return voice_settings.get(lang_code, ("alloy", "1.0"))
+
     def generate_tts(self, text: str, filename: str) -> Optional[List[str]]:
-        """Generate text-to-speech audio using OpenAI's API, returns list of audio file paths"""
+        """Generate text-to-speech audio using OpenAI's API"""
         try:
             logger.info(f"Generating TTS for text of length {len(text)} with base filename {filename}")
             
@@ -497,10 +712,18 @@ Format your response as a JSON object with these exact keys:
             tts_dir = self.data_dir / "tts"
             tts_dir.mkdir(parents=True, exist_ok=True)
             
-            # Generate base filename
+            # Detect language and get voice settings
+            lang_code = self._detect_language(text)
+            voice, speed = self._get_voice_for_language(lang_code)
+            logger.info(f"Using voice '{voice}' with speed {speed} for language '{lang_code}'")
+            
+            # Generate unique filename
             file_hash = hashlib.sha256(text.encode()).hexdigest()[:8]
-            base_path = tts_dir / f"{filename}_{file_hash}"
-            logger.debug(f"Base path for audio files: {base_path}")
+            output_path = tts_dir / f"{filename}_{file_hash}.mp3"
+            
+            # Check if audio already exists
+            if output_path.exists():
+                return str(output_path)
             
             # Split text into chunks
             text_chunks = self._chunk_text(text)
@@ -523,7 +746,8 @@ Format your response as a JSON object with these exact keys:
                 logger.debug(f"Generating audio for chunk {i+1} (length: {len(chunk)})")
                 response = self.openai_client.audio.speech.create(
                     model="tts-1",
-                    voice="nova",
+                    voice=voice,
+                    speed=float(speed),
                     input=chunk
                 )
                 
