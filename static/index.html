@@ -184,7 +184,7 @@
                         {summary.comprehensive_summary && (
                             <div>
                                 <h3 className="text-lg font-medium mb-2">Comprehensive Summary</h3>
-                                <p className="text-gray-600">{summary.comprehensive_summary}</p>
+                                <p className="text-gray-600 whitespace-pre-wrap">{summary.comprehensive_summary}</p>
                             </div>
                         )}
                         
@@ -209,18 +209,73 @@
                                 </ul>
                             </div>
                         )}
+
+                        {summary.wisdom && Array.isArray(summary.wisdom) && summary.wisdom.length > 0 && (
+                            <div>
+                                <h3 className="text-lg font-medium mb-2">Wisdom & Principles</h3>
+                                <ul className="space-y-2 text-gray-600">
+                                    {summary.wisdom.map((item, index) => (
+                                        <li key={index}>• {item}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        {summary.follow_up && Array.isArray(summary.follow_up) && summary.follow_up.length > 0 && (
+                            <div>
+                                <h3 className="text-lg font-medium mb-2">Follow-up Questions</h3>
+                                <ul className="space-y-2 text-gray-600">
+                                    {summary.follow_up.map((item, index) => (
+                                        <li key={index}>• {item}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        {summary.references && Array.isArray(summary.references) && summary.references.length > 0 && (
+                            <div>
+                                <h3 className="text-lg font-medium mb-2">References & Resources</h3>
+                                <ul className="space-y-2 text-gray-600">
+                                    {summary.references.map((item, index) => (
+                                        <li key={index}>• {item}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        {summary.notable_quotes && Array.isArray(summary.notable_quotes) && summary.notable_quotes.length > 0 && (
+                            <div>
+                                <h3 className="text-lg font-medium mb-2">Notable Quotes</h3>
+                                <ul className="space-y-2 text-gray-600">
+                                    {summary.notable_quotes.map((quote, index) => (
+                                        <li key={index} className="italic">"{quote}"</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        {summary.topics && Array.isArray(summary.topics) && summary.topics.length > 0 && (
+                            <div>
+                                <h3 className="text-lg font-medium mb-2">Main Topics</h3>
+                                <ul className="space-y-2 text-gray-600">
+                                    {summary.topics.map((topic, index) => (
+                                        <li key={index}>• {topic}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
                     </div>
                 );
             };
 
             return (
-                <div className="max-w-6xl mx-auto p-6">
-                    <div className="grid grid-cols-2 gap-8">
+                <div className="max-w-6xl mx-auto p-6 h-screen overflow-hidden">
+                    <div className="grid grid-cols-2 gap-8 h-full">
                         {/* Left Column */}
-                        <div>
-                            <h1 className="text-2xl font-semibold mb-6">Podcast summary</h1>
+                        <div className="flex flex-col min-h-0">
+                            <h1 className="text-2xl font-semibold mb-6 flex-shrink-0">Podcast summary</h1>
                             
-                            <div className="bg-white p-6 rounded-lg shadow-sm mb-8">
+                            <div className="bg-white p-6 rounded-lg shadow-sm mb-6 flex-shrink-0">
                                 <input
                                     type="text"
                                     placeholder="Paste the episode URL"
@@ -233,9 +288,9 @@
                                 </button>
                             </div>
 
-                            <div>
-                                <h2 className="text-xl font-semibold mb-4">History</h2>
-                                <div className="space-y-2">
+                            <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+                                <h2 className="text-xl font-semibold mb-4 flex-shrink-0">History</h2>
+                                <div className="space-y-2 overflow-y-auto flex-1">
                                     {loading ? (
                                         <div className="text-gray-500">Loading history...</div>
                                     ) : error ? (
@@ -268,8 +323,8 @@
                         </div>
 
                         {/* Right Column */}
-                        <div className="bg-white p-6 rounded-lg shadow-sm">
-                            <div className="flex gap-8 mb-6">
+                        <div className="bg-white rounded-lg shadow-sm flex flex-col min-h-0">
+                            <div className="flex gap-8 p-6 border-b flex-shrink-0">
                                 <button 
                                     className={`pb-2 ${activeTab === 'original' ? 'tab-active' : ''}`}
                                     onClick={() => setActiveTab('original')}
@@ -284,64 +339,70 @@
                                 </button>
                             </div>
 
-                            {selectedHistoryItem ? (
-                                <div className="mb-6">
-                                    <h2 className="text-xl font-semibold mb-4">
-                                        {activeTab === 'original' ? 'Original Content' : 'Episode Summary'}
-                                    </h2>
-                                    
-                                    {activeTab === 'summary' && (
-                                        <div>
-                                            <button 
-                                                onClick={handleReadOutLoud}
-                                                disabled={isGeneratingAudio}
-                                                className={`btn-primary flex items-center justify-center gap-2 mb-6 ${isGeneratingAudio ? 'opacity-75 cursor-not-allowed' : ''}`}
-                                            >
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                    <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414z" clipRule="evenodd" />
-                                                </svg>
-                                                {isGeneratingAudio ? 'Generating audio...' : 'Read out loud'}
-                                            </button>
+                            <div className="flex-1 overflow-hidden">
+                                {selectedHistoryItem ? (
+                                    <div className="h-full flex flex-col min-h-0">
+                                        <div className="p-6 flex-shrink-0">
+                                            <h2 className="text-xl font-semibold mb-4">
+                                                {activeTab === 'original' ? 'Original Content' : 'Episode Summary'}
+                                            </h2>
                                             
-                                            {audioFiles.length > 0 && (
-                                                <div className="mb-6">
-                                                    <audio 
-                                                        ref={audioRef}
-                                                        className="w-full" 
-                                                        controls
-                                                        onEnded={handleAudioEnded}
+                                            {activeTab === 'summary' && (
+                                                <div>
+                                                    <button 
+                                                        onClick={handleReadOutLoud}
+                                                        disabled={isGeneratingAudio}
+                                                        className={`btn-primary flex items-center justify-center gap-2 mb-6 ${isGeneratingAudio ? 'opacity-75 cursor-not-allowed' : ''}`}
                                                     >
-                                                        Your browser does not support the audio element.
-                                                    </audio>
-                                                    <div className="text-sm text-gray-500 mt-1">
-                                                        Playing section {currentAudioIndex + 1} of {audioFiles.length}
-                                                    </div>
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                            <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414z" clipRule="evenodd" />
+                                                        </svg>
+                                                        {isGeneratingAudio ? 'Generating audio...' : 'Read out loud'}
+                                                    </button>
+                                                    
+                                                    {audioFiles.length > 0 && (
+                                                        <div className="mb-6">
+                                                            <audio 
+                                                                ref={audioRef}
+                                                                className="w-full" 
+                                                                controls
+                                                                onEnded={handleAudioEnded}
+                                                            >
+                                                                Your browser does not support the audio element.
+                                                            </audio>
+                                                            <div className="text-sm text-gray-500 mt-1">
+                                                                Playing section {currentAudioIndex + 1} of {audioFiles.length}
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
-                                    )}
 
-                                    {activeTab === 'original' ? (
-                                        selectedHistoryItem.transcript ? (
-                                            <div className="text-gray-600 whitespace-pre-wrap font-mono text-sm">
-                                                {selectedHistoryItem.transcript}
-                                            </div>
-                                        ) : (
-                                            <div className="text-gray-500">Loading transcript...</div>
-                                        )
-                                    ) : (
-                                        selectedHistoryItem.summary ? (
-                                            renderSummaryContent(selectedHistoryItem.summary)
-                                        ) : (
-                                            <div className="text-gray-500">Loading summary...</div>
-                                        )
-                                    )}
-                                </div>
-                            ) : (
-                                <div className="flex items-center justify-center h-64 text-gray-500">
-                                    Select a podcast from history to view its content
-                                </div>
-                            )}
+                                        <div className="flex-1 overflow-y-auto px-6 pb-6">
+                                            {activeTab === 'original' ? (
+                                                selectedHistoryItem.transcript ? (
+                                                    <div className="text-gray-600 whitespace-pre-wrap font-mono text-sm">
+                                                        {selectedHistoryItem.transcript}
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-gray-500">Loading transcript...</div>
+                                                )
+                                            ) : (
+                                                selectedHistoryItem.summary ? (
+                                                    renderSummaryContent(selectedHistoryItem.summary)
+                                                ) : (
+                                                    <div className="text-gray-500">Loading summary...</div>
+                                                )
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center justify-center h-full text-gray-500 p-6">
+                                        Select a podcast from history to view its content
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                     
