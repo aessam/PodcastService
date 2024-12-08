@@ -308,3 +308,13 @@ async def get_tts_audio(filename: str):
     except Exception as e:
         logger.error(f"Error serving audio file: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) 
+
+@app.post("/api/episode/refresh-metadata/{url:path}")
+async def refresh_metadata(url: str):
+    try:
+        # Decode URL
+        decoded_url = urllib.parse.unquote(url)
+        metadata = service.refresh_episode_metadata(decoded_url)
+        return metadata
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) 

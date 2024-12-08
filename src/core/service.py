@@ -7,6 +7,7 @@ import uuid
 import hashlib
 import logging
 from langdetect import detect, DetectorFactory
+import yt_dlp
 
 from podcast_service.src.core.transcriber import Transcriber
 from podcast_service.src.core.podcast_fetcher import PodcastFetcher
@@ -421,7 +422,26 @@ Format your response as a JSON object with these exact keys:
         try:
             # Generate file hash for storage
             file_hash = self._generate_file_hash(url)
-            display_title = title or url  # Keep original title for display
+            
+            # First try to get metadata
+            try:
+                ydl_opts = {
+                    'quiet': True,
+                    'no_warnings': True,
+                    'extract_flat': True,  # Only extract metadata
+                }
+                
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    extracted_title = info.get("title")
+                    if not extracted_title:
+                        extracted_title = info.get("webpage_title")
+                    
+                    # Use the best available title
+                    display_title = title or extracted_title or url
+            except Exception as e:
+                print(f"Warning: Could not extract metadata: {e}")
+                display_title = title or url
             
             # Step 1: Download or get cached audio
             print(f"\n{'='*50}")
@@ -439,7 +459,7 @@ Format your response as a JSON object with these exact keys:
                 audio_path = cached_path
             else:
                 print("⌛ Downloading audio...")
-                audio_path = fetcher.download_episode(url, file_hash)
+                audio_path = fetcher.download_episode(url, display_title)  # Pass the display_title to the fetcher
                 if audio_path:
                     self.cache_manager.cache_download(url, audio_path)
                 print("✓ Download complete")
@@ -844,3 +864,53 @@ Format your response as a JSON object with these exact keys:
         except Exception as e:
             logger.error(f"Error getting summary TTS: {e}", exc_info=True)
             return None
+
+    def refresh_episode_metadata(self, url: str) -> Dict:
+        """Refresh metadata for an episode without redownloading"""
+        fetcher = PodcastFetcher(self.downloads_dir, cache_manager=self.cache_manager)
+        
+        try:
+            # Extract metadata without downloading
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': True,  # Only extract metadata
+            }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                extracted_title = info.get("title")
+                if not extracted_title:
+                    extracted_title = info.get("webpage_title")
+                
+                metadata = {
+                    "title": extracted_title,
+                    "description": info.get("description"),
+                    "webpage_url": info.get("webpage_url"),
+                    "uploader": info.get("uploader"),
+                }
+                
+                # Update history
+                history_file = self._get_history_file()
+                if history_file.exists():
+                    with open(history_file, 'r', encoding='utf-8') as f:
+                        history = json.load(f)
+                    
+                    # Find and update the episode
+                    for entry in history:
+                        if entry['url'] == url:
+                            entry['title'] = metadata['title']
+                            entry['description'] = metadata.get('description')
+                            entry['webpage_url'] = metadata.get('webpage_url')
+                            entry['uploader'] = metadata.get('uploader')
+                            break
+                    
+                    # Save updated history
+                    with open(history_file, 'w', encoding='utf-8') as f:
+                        json.dump(history, f, indent=2)
+                
+                return metadata
+                
+        except Exception as e:
+            print(f"Error refreshing metadata: {e}")
+            raise RuntimeError(f"Failed to refresh metadata: {e}")

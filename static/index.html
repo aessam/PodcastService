@@ -66,6 +66,7 @@
             const [audioFiles, setAudioFiles] = React.useState([]);
             const audioRef = React.useRef(null);
             const [currentAudioIndex, setCurrentAudioIndex] = React.useState(0);
+            const [refreshingMetadata, setRefreshingMetadata] = React.useState({});
 
             React.useEffect(() => {
                 fetchHistory();
@@ -171,6 +172,31 @@
                         }
                         return nextIndex;
                     });
+                }
+            };
+
+            const handleRefreshMetadata = async (item, e) => {
+                e.stopPropagation(); // Prevent triggering the history item click
+                
+                if (refreshingMetadata[item.id]) return;
+                
+                setRefreshingMetadata(prev => ({ ...prev, [item.id]: true }));
+                try {
+                    const response = await fetch(`/api/episode/refresh-metadata/${encodeURIComponent(item.url)}`, {
+                        method: 'POST'
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('Failed to refresh metadata');
+                    }
+                    
+                    // Refresh history to show updated metadata
+                    fetchHistory();
+                } catch (error) {
+                    console.error('Error refreshing metadata:', error);
+                    setError('Failed to refresh metadata');
+                } finally {
+                    setRefreshingMetadata(prev => ({ ...prev, [item.id]: false }));
                 }
             };
 
@@ -309,12 +335,22 @@
                                                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
                                                     </svg>
                                                 </div>
-                                                <div>
+                                                <div className="flex-1">
                                                     <div className="font-medium">{item.title || 'Untitled Episode'}</div>
                                                     <div className="text-sm text-gray-500">
                                                         {new Date(item.processed_at).toLocaleDateString()}
                                                     </div>
                                                 </div>
+                                                <button
+                                                    onClick={(e) => handleRefreshMetadata(item, e)}
+                                                    className={`p-2 rounded-full hover:bg-gray-100 ${refreshingMetadata[item.id] ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                    disabled={refreshingMetadata[item.id]}
+                                                    title="Refresh metadata"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-gray-500 ${refreshingMetadata[item.id] ? 'animate-spin' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                                                        <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                                                    </svg>
+                                                </button>
                                             </div>
                                         ))
                                     )}
