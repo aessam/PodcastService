@@ -34,6 +34,9 @@ class PodcastService:
         # Initialize cache manager
         self.cache_manager = CacheManager(self.data_dir / "cache")
         
+        # Initialize podcast fetcher
+        self.podcast_fetcher = PodcastFetcher()
+        
         # Load settings
         self.settings = self._load_settings()
         
@@ -918,28 +921,46 @@ Format your response as a JSON object with these exact keys:
 
     def search_podcasts(self, query: str) -> List[Dict]:
         """Search for podcasts using iTunes API"""
-        itunes_api = f"https://itunes.apple.com/search?term={query}&entity=podcast"
-        response = requests.get(itunes_api)
-        if response.status_code == 200:
-            results = response.json().get('results', [])
-            return [
-                {
-                    'id': item['collectionId'],
-                    'title': item['collectionName'],
-                    'author': item['artistName'],
-                    'feed_url': item['feedUrl'],
-                    'artwork': item['artworkUrl600']
-                }
-                for item in results
-            ]
-        return []
+        print(f"Service: Searching for podcasts with query: {query}")
+        base_url = "https://itunes.apple.com/search"
+        params = {
+            "term": query,
+            "media": "podcast",
+            "limit": 10
+        }
+        
+        try:
+            response = requests.get(base_url, params=params)
+            print(f"Service: Response status code: {response.status_code}")
+            if response.status_code == 200:
+                results = response.json().get('results', [])
+                print(f"Service: Found {len(results)} results")
+                return [
+                    {
+                        'id': str(podcast.get('collectionId')),
+                        'title': podcast.get('trackName', ''),
+                        'author': podcast.get('artistName', ''),
+                        'feed_url': podcast.get('feedUrl', ''),
+                        'artwork': podcast.get('artworkUrl600', ''),
+                        'description': podcast.get('collectionCensoredName', ''),
+                        'itunes_url': podcast.get('collectionViewUrl', '')
+                    }
+                    for podcast in results
+                    if podcast.get('feedUrl')
+                ]
+            print(f"Service: API request failed with status {response.status_code}")
+            return []
+        except Exception as e:
+            print(f"Service: Error searching podcasts: {e}")
+            return []
 
-    def subscribe_to_podcast(self, podcast_id: str, feed_url: str) -> bool:
+    def subscribe_to_podcast(self, podcast_id: str, feed_url: str, title: str = '') -> bool:
         """Subscribe to a podcast feed"""
         try:
             subscription = {
                 'id': podcast_id,
                 'feed_url': feed_url,
+                'title': title,
                 'type': 'podcast'
             }
             self.cache_manager.save_subscription(subscription)
@@ -976,15 +997,38 @@ Format your response as a JSON object with these exact keys:
 
     def refresh_episodes(self) -> Dict:
         """Refresh episodes for all subscriptions"""
-        subscriptions = self.cache_manager.get_all_subscriptions()
-        new_episodes = {'podcast': [], 'youtube': []}
-        
-        for sub in subscriptions:
-            if sub['type'] == 'podcast':
-                episodes = self.podcast_fetcher.fetch_episodes(sub['feed_url'])
-                new_episodes['podcast'].extend(episodes)
-            elif sub['type'] == 'youtube':
-                # Implement YouTube episode fetching
-                pass
-        
-        return new_episodes
+        print("Refreshing episodes...")
+        try:
+            subscriptions = self.cache_manager.get_all_subscriptions()
+            new_episodes = {'podcast': {}}
+            
+            for sub in subscriptions:
+                print(f"Processing subscription: {sub}")
+                if sub['type'] == 'podcast':
+                    print(f"Fetching episodes from feed: {sub['feed_url']}")
+                    try:
+                        episodes = self.podcast_fetcher.fetch_episodes(sub['feed_url'])
+                        # Add subscription info to episodes
+                        for episode in episodes:
+                            if not episode.get('id'):
+                                episode['id'] = hashlib.sha256(
+                                    f"{sub['id']}_{episode.get('title')}_{episode.get('published')}".encode()
+                                ).hexdigest()[:12]
+                            episode['subscription_id'] = sub['id']
+                            episode['subscription_type'] = 'podcast'
+                            new_episodes['podcast'][episode['id']] = episode
+                    except Exception as e:
+                        print(f"Error fetching episodes for subscription {sub['id']}: {e}")
+                        continue
+            
+            # Save episodes to cache
+            try:
+                self.cache_manager.save_episodes(new_episodes)
+            except Exception as e:
+                print(f"Error saving episodes to cache: {e}")
+            
+            print(f"Found {len(new_episodes['podcast'])} podcast episodes")
+            return new_episodes
+        except Exception as e:
+            print(f"Error refreshing episodes: {e}")
+            return {'podcast': {}}

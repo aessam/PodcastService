@@ -318,3 +318,61 @@ async def refresh_metadata(url: str):
         return metadata
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) 
+
+@app.get("/api/search/podcasts")
+async def search_podcasts(q: str = None):
+    """Search for podcasts using iTunes API"""
+    print(f"Received search request with query: {q}")
+    try:
+        if not q:
+            raise HTTPException(status_code=400, detail="Query parameter 'q' is required")
+        print(f"Searching for podcasts with query: {q}")
+        results = service.search_podcasts(q)
+        print(f"Found {len(results)} results")
+        return results
+    except Exception as e:
+        print(f"Error searching podcasts: {e}")
+        return {"error": str(e)}
+
+@app.post("/api/subscribe/podcast")
+async def subscribe_to_podcast(data: Dict):
+    """Subscribe to a podcast"""
+    try:
+        success = service.subscribe_to_podcast(data['id'], data['feed_url'])
+        if success:
+            return {"status": "success"}
+        raise HTTPException(status_code=400, detail="Failed to subscribe")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/subscribe/youtube")
+async def subscribe_to_youtube(data: Dict):
+    """Subscribe to a YouTube channel"""
+    try:
+        success = service.subscribe_to_youtube(data['url'])
+        if success:
+            return {"status": "success"}
+        raise HTTPException(status_code=400, detail="Failed to subscribe")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/refresh-episodes")
+async def refresh_episodes():
+    """Refresh episodes for all subscriptions"""
+    try:
+        episodes = service.refresh_episodes()
+        return {
+            'podcast': episodes.get('podcast', []),
+            'youtube': episodes.get('youtube', [])
+        }
+    except Exception as e:
+        logger.error(f"Error refreshing episodes: {e}", exc_info=True)
+        return {'podcast': [], 'youtube': []}
+
+@app.get("/api/subscriptions")
+async def get_subscriptions():
+    """Get all subscriptions"""
+    try:
+        return service.cache_manager.get_all_subscriptions()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) 

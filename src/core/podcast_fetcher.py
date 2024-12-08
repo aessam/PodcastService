@@ -16,9 +16,14 @@ class PodcastFetcher:
                     'description': entry.get('description', ''),
                     'published': entry.get('published', ''),
                     'audio_url': self._get_audio_url(entry),
-                    'duration': entry.get('itunes_duration', '')
+                    'duration': entry.get('itunes_duration', ''),
+                    'image': entry.get('image', {}).get('href', ''),
+                    'link': entry.get('link', ''),
+                    'feed_url': feed_url,
+                    'processed': False
                 }
-                episodes.append(episode)
+                if episode['audio_url']:
+                    episodes.append(episode)
             
             return episodes
         except Exception as e:

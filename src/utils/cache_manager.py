@@ -116,4 +116,37 @@ class CacheManager:
 
     def is_transcript_cached(self, audio_path: str) -> bool:
         """Check if a transcript is cached."""
-        return bool(self.get_cached_transcript_path(audio_path)) 
+        return bool(self.get_cached_transcript_path(audio_path))
+
+    def save_episodes(self, episodes: Dict):
+        """Save episodes to cache"""
+        episodes_file = os.path.join(self.cache_dir, "episodes.json")
+        try:
+            # Load existing episodes if any
+            existing = self.get_cached_episodes()
+            
+            # Merge with new episodes
+            if isinstance(episodes.get('podcast'), dict):
+                existing['podcast'].update(episodes['podcast'])
+            elif isinstance(episodes.get('podcast'), list):
+                for episode in episodes['podcast']:
+                    if 'id' in episode:
+                        existing['podcast'][episode['id']] = episode
+            
+            # Save back to file
+            with open(episodes_file, 'w') as f:
+                json.dump(existing, f, indent=2)
+        except Exception as e:
+            print(f"Error saving episodes: {e}")
+
+    def get_cached_episodes(self) -> Dict:
+        """Get all cached episodes"""
+        episodes_file = os.path.join(self.cache_dir, "episodes.json")
+        try:
+            with open(episodes_file, 'r') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return {'podcast': {}, 'youtube': {}}
+        except Exception as e:
+            print(f"Error reading episodes: {e}")
+            return {'podcast': {}, 'youtube': {}} 

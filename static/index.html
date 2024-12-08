@@ -22,7 +22,6 @@
             padding: 12px;
             border: 1px solid #e2e8f0;
             border-radius: 8px;
-            margin-bottom: 16px;
             font-size: 16px;
         }
         .btn-primary {
@@ -33,7 +32,6 @@
             border: none;
             font-size: 16px;
             cursor: pointer;
-            width: 100%;
         }
         .btn-primary:hover {
             background-color: #3b6ce0;
@@ -71,6 +69,30 @@
             border: 1px solid #ddd;
             border-radius: 4px;
         }
+        .search-box {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+        }
+        .search-box .input-field {
+            margin-bottom: 0;
+        }
+        .search-box .btn-primary {
+            min-width: 120px;
+        }
+        .search-results {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-bottom: 32px;
+        }
+        .subscription-container {
+            height: calc(100vh - 200px);
+            overflow-y: auto;
+            padding: 24px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
     </style>
 </head>
 <body>
@@ -80,8 +102,12 @@
         function Dashboard() {
             const [url, setUrl] = React.useState('');
             const [activeTab, setActiveTab] = React.useState('summary');
+            const [activeView, setActiveView] = React.useState('process');
             const [selectedHistoryItem, setSelectedHistoryItem] = React.useState(null);
             const [history, setHistory] = React.useState([]);
+            const [searchQuery, setSearchQuery] = React.useState('');
+            const [searchResults, setSearchResults] = React.useState([]);
+            const [youtubeUrl, setYoutubeUrl] = React.useState('');
             const [loading, setLoading] = React.useState(true);
             const [error, setError] = React.useState(null);
             const [isGeneratingAudio, setIsGeneratingAudio] = React.useState(false);
@@ -89,10 +115,55 @@
             const audioRef = React.useRef(null);
             const [currentAudioIndex, setCurrentAudioIndex] = React.useState(0);
             const [refreshingMetadata, setRefreshingMetadata] = React.useState({});
+            const [searchLoading, setSearchLoading] = React.useState(false);
+            const [searchError, setSearchError] = React.useState(null);
+            const [subscriptions, setSubscriptions] = React.useState([]);
+            const [episodes, setEpisodes] = React.useState({ podcast: {} });
+            const [latestEpisodes, setLatestEpisodes] = React.useState([]);
 
-            React.useEffect(() => {
-                fetchHistory();
-            }, []);
+            const loadSubscriptions = async () => {
+                try {
+                    const response = await fetch('/api/subscriptions');
+                    if (response.ok) {
+                        const data = await response.json();
+                        setSubscriptions(data);
+                    }
+                } catch (error) {
+                    console.error('Error loading subscriptions:', error);
+                }
+            };
+
+            const refreshEpisodes = async () => {
+                try {
+                    const response = await fetch('/api/refresh-episodes');
+                    const data = await response.json();
+                    console.log('Refresh episodes response:', data);
+                    
+                    if (!response.ok) {
+                        console.error('Failed to refresh episodes:', data);
+                        return;
+                    }
+                    
+                    setEpisodes(data);
+                    // Get latest episode from each subscription
+                    const latestFromEach = subscriptions
+                        .filter(sub => sub.type === 'podcast')
+                        .map(subscription => {
+                            // Get all episodes for this subscription
+                            const subscriptionEpisodes = Object.values(data.podcast || {})
+                                .filter(episode => episode.subscription_id === subscription.id)
+                                .sort((a, b) => new Date(b.published) - new Date(a.published));
+                            
+                            // Return the latest episode if any
+                            return subscriptionEpisodes[0];
+                        })
+                        .filter(Boolean); // Remove any undefined entries
+                    
+                    setLatestEpisodes(latestFromEach);
+                } catch (error) {
+                    console.error('Error refreshing episodes:', error);
+                }
+            };
 
             const fetchHistory = async () => {
                 try {
@@ -222,6 +293,86 @@
                 }
             };
 
+            const handlePodcastSearch = async () => {
+                if (!searchQuery.trim()) return;
+                
+                setSearchLoading(true);
+                setSearchError(null);
+                try {
+                    const response = await fetch(`/api/search/podcasts?q=${encodeURIComponent(searchQuery)}`);
+                    const data = await response.json();
+                    
+                    if (!response.ok || data.error) {
+                        throw new Error(data.error || 'Failed to search podcasts');
+                    }
+                    setSearchResults(data);
+                } catch (error) {
+                    console.error('Error searching podcasts:', error);
+                    setSearchError('Failed to search podcasts. Please try again.');
+                } finally {
+                    setSearchLoading(false);
+                }
+            };
+
+            const handlePodcastSubscribe = async (podcastId, feedUrl) => {
+                try {
+                    const podcast = searchResults.find(p => p.id === podcastId);
+                    const response = await fetch('/api/subscribe/podcast', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            id: podcastId,
+                            feed_url: feedUrl,
+                            title: podcast ? podcast.title : ''
+                        })
+                    });
+                    if (response.ok) {
+                        alert('Successfully subscribed to podcast!');
+                        await refreshEpisodes();
+                        await loadSubscriptions();
+                    }
+                } catch (error) {
+                    console.error('Error subscribing to podcast:', error);
+                    setError('Failed to subscribe to podcast');
+                }
+            };
+
+            const handleYoutubeSubscribe = async () => {
+                try {
+                    const response = await fetch('/api/subscribe/youtube', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({url: youtubeUrl})
+                    });
+                    if (response.ok) {
+                        alert('Successfully subscribed to YouTube channel!');
+                        setYoutubeUrl('');
+                    }
+                } catch (error) {
+                    console.error('Error subscribing to YouTube channel:', error);
+                    setError('Failed to subscribe to YouTube channel');
+                }
+            };
+
+            const handleProcessEpisode = async (audioUrl) => {
+                try {
+                    const response = await fetch(`/api/process/episode?url=${encodeURIComponent(audioUrl)}`, {
+                        method: 'POST'
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('Failed to process episode');
+                    }
+                    
+                    alert('Episode processing started!');
+                    // Refresh history after a short delay to show the new episode
+                    setTimeout(fetchHistory, 2000);
+                } catch (error) {
+                    console.error('Error processing episode:', error);
+                    alert('Failed to process episode. Please try again.');
+                }
+            };
+
             const renderSummaryContent = (summary) => {
                 if (!summary) {
                     return <div className="text-gray-500">No summary available</div>;
@@ -316,68 +467,220 @@
                 );
             };
 
+            React.useEffect(() => {
+                fetchHistory();
+                loadSubscriptions();
+                refreshEpisodes();
+            }, []);
+
             return (
                 <div className="max-w-6xl mx-auto p-6 h-screen overflow-hidden">
+                    <div className="flex gap-4 mb-6">
+                        <button 
+                            className={`px-4 py-2 rounded ${activeView === 'process' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+                            onClick={() => setActiveView('process')}
+                        >
+                            Process Episode
+                        </button>
+                        <button 
+                            className={`px-4 py-2 rounded ${activeView === 'subscribe' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+                            onClick={() => setActiveView('subscribe')}
+                        >
+                            Manage Subscriptions
+                        </button>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-8 h-full">
                         {/* Left Column */}
                         <div className="flex flex-col min-h-0">
-                            <h1 className="text-2xl font-semibold mb-6 flex-shrink-0">Podcast summary</h1>
+                            <h1 className="text-2xl font-semibold mb-6 flex-shrink-0">
+                                {activeView === 'process' ? 'Podcast summary' : 'Manage Subscriptions'}
+                            </h1>
                             
-                            <div className="bg-white p-6 rounded-lg shadow-sm mb-6 flex-shrink-0">
-                                <input
-                                    type="text"
-                                    placeholder="Paste the episode URL"
-                                    value={url}
-                                    onChange={(e) => setUrl(e.target.value)}
-                                    className="input-field"
-                                />
-                                <button onClick={handleSubmit} className="btn-primary">
-                                    Summarize
-                                </button>
-                            </div>
-
-                            <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-                                <h2 className="text-xl font-semibold mb-4 flex-shrink-0">History</h2>
-                                <div className="space-y-2 overflow-y-auto flex-1">
-                                    {loading ? (
-                                        <div className="text-gray-500">Loading history...</div>
-                                    ) : error ? (
-                                        <div className="text-red-500">{error}</div>
-                                    ) : history.length === 0 ? (
-                                        <div className="text-gray-500">No episodes processed yet</div>
-                                    ) : (
-                                        history.map(item => (
-                                            <div 
-                                                key={item.id} 
-                                                className={`history-item cursor-pointer hover:bg-gray-50 ${selectedHistoryItem && selectedHistoryItem.id === item.id ? 'bg-gray-50' : ''}`}
-                                                onClick={() => handleHistoryItemClick(item)}
-                                            >
-                                                <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500" viewBox="0 0 20 20" fill="currentColor">
-                                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                                                    </svg>
-                                                </div>
-                                                <div className="flex-1">
-                                                    <div className="font-medium">{item.title || 'Untitled Episode'}</div>
-                                                    <div className="text-sm text-gray-500">
-                                                        {new Date(item.processed_at).toLocaleDateString()}
+                            {activeView === 'process' ? (
+                                <div>
+                                    <div className="bg-white p-6 rounded-lg shadow-sm mb-6 flex-shrink-0">
+                                        <input
+                                            type="text"
+                                            placeholder="Paste the episode URL"
+                                            value={url}
+                                            onChange={(e) => setUrl(e.target.value)}
+                                            className="input-field"
+                                        />
+                                        <button onClick={handleSubmit} className="btn-primary">
+                                            Summarize
+                                        </button>
+                                    </div>
+                                    <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+                                        <h2 className="text-xl font-semibold mb-4 flex-shrink-0">History</h2>
+                                        <div className="space-y-2 overflow-y-auto flex-1">
+                                            {loading ? (
+                                                <div className="text-gray-500">Loading history...</div>
+                                            ) : error ? (
+                                                <div className="text-red-500">{error}</div>
+                                            ) : history.length === 0 ? (
+                                                <div className="text-gray-500">No episodes processed yet</div>
+                                            ) : (
+                                                history.map(item => (
+                                                    <div 
+                                                        key={item.id} 
+                                                        className={`history-item cursor-pointer hover:bg-gray-50 ${selectedHistoryItem && selectedHistoryItem.id === item.id ? 'bg-gray-50' : ''}`}
+                                                        onClick={() => handleHistoryItemClick(item)}
+                                                    >
+                                                        <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500" viewBox="0 0 20 20" fill="currentColor">
+                                                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                                                            </svg>
+                                                        </div>
+                                                        <div className="flex-1">
+                                                            <div className="font-medium">{item.title || 'Untitled Episode'}</div>
+                                                            <div className="text-sm text-gray-500">
+                                                                {new Date(item.processed_at).toLocaleDateString()}
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            onClick={(e) => handleRefreshMetadata(item, e)}
+                                                            className={`p-2 rounded-full hover:bg-gray-100 ${refreshingMetadata[item.id] ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                            disabled={refreshingMetadata[item.id]}
+                                                            title="Refresh metadata"
+                                                        >
+                                                            <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-gray-500 ${refreshingMetadata[item.id] ? 'animate-spin' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                                                                <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                                                            </svg>
+                                                        </button>
                                                     </div>
-                                                </div>
-                                                <button
-                                                    onClick={(e) => handleRefreshMetadata(item, e)}
-                                                    className={`p-2 rounded-full hover:bg-gray-100 ${refreshingMetadata[item.id] ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                    disabled={refreshingMetadata[item.id]}
-                                                    title="Refresh metadata"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-gray-500 ${refreshingMetadata[item.id] ? 'animate-spin' : ''}`} viewBox="0 0 20 20" fill="currentColor">
-                                                        <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-                                                    </svg>
-                                                </button>
-                                            </div>
-                                        ))
-                                    )}
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
+                            ) : (
+                                <div className="subscription-container">
+                                    <div className="mb-12">
+                                        <div className="flex justify-between items-center mb-6">
+                                            <h3 className="text-xl font-semibold">Latest Episodes</h3>
+                                            <button 
+                                                onClick={refreshEpisodes}
+                                                className="btn-primary"
+                                            >
+                                                Refresh Episodes
+                                            </button>
+                                        </div>
+                                        <div className="space-y-4">
+                                            {latestEpisodes.length === 0 ? (
+                                                <div className="text-gray-500 text-center py-4">No episodes found</div>
+                                            ) : (
+                                                latestEpisodes.map(episode => (
+                                                    <div key={episode.id} className="episode">
+                                                        <div className="flex items-center gap-4">
+                                                            {episode.image && (
+                                                                <img src={episode.image} alt="" className="w-16 h-16 rounded" />
+                                                            )}
+                                                            <div className="flex-1">
+                                                                <h4 className="font-medium text-lg">{episode.title || 'Untitled Episode'}</h4>
+                                                                <p className="text-sm text-gray-600">
+                                                                    {new Date(episode.published || Date.now()).toLocaleDateString()}
+                                                                </p>
+                                                            </div>
+                                                            <button 
+                                                                onClick={() => handleProcessEpisode(episode.audio_url)}
+                                                                className="btn-primary whitespace-nowrap"
+                                                            >
+                                                                Process
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                        <p className="text-sm text-gray-500 mt-4">Showing latest episode from each podcast</p>
+                                    </div>
+
+                                    <div className="mb-12">
+                                        <h3 className="text-xl font-semibold mb-6">Search Podcasts</h3>
+                                        <div className="search-box">
+                                            <input
+                                                type="text"
+                                                placeholder="Search podcasts..."
+                                                value={searchQuery}
+                                                onChange={(e) => setSearchQuery(e.target.value)}
+                                                className="input-field flex-1"
+                                                onKeyPress={(e) => e.key === 'Enter' && handlePodcastSearch()}
+                                                disabled={searchLoading}
+                                            />
+                                            <button 
+                                                onClick={handlePodcastSearch} 
+                                                className="btn-primary"
+                                                disabled={!searchQuery.trim() || searchLoading}
+                                            >
+                                                {searchLoading ? 'Searching...' : 'Search'}
+                                            </button>
+                                        </div>
+                                        {searchError && (
+                                            <div className="text-red-500 text-sm mt-2">
+                                                {searchError}
+                                            </div>
+                                        )}
+                                        <div className="search-results">
+                                            {searchResults.length > 0 ? (
+                                                <div className="space-y-4">
+                                                    {searchResults.map(podcast => (
+                                                        <div key={podcast.id} className="flex items-center gap-4 p-4 border rounded hover:bg-gray-50">
+                                                            <img src={podcast.artwork} alt={podcast.title} className="w-16 h-16 rounded" />
+                                                            <div className="flex-1 min-w-0">
+                                                                <h4 className="font-medium text-lg truncate">{podcast.title}</h4>
+                                                                <p className="text-sm text-gray-600 truncate">{podcast.author}</p>
+                                                                <p className="text-sm text-gray-500 mt-1 line-clamp-2">{podcast.description}</p>
+                                                                <div className="mt-2">
+                                                                    <a 
+                                                                        href={podcast.itunes_url} 
+                                                                        target="_blank" 
+                                                                        rel="noopener noreferrer"
+                                                                        className="text-blue-500 hover:underline text-sm"
+                                                                    >
+                                                                        View on iTunes
+                                                                    </a>
+                                                                </div>
+                                                            </div>
+                                                            <button 
+                                                                onClick={() => handlePodcastSubscribe(podcast.id, podcast.feed_url)}
+                                                                className="btn-primary whitespace-nowrap"
+                                                            >
+                                                                Subscribe
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : searchQuery ? (
+                                                <div className="text-gray-500 text-center py-8">
+                                                    No podcasts found. Try a different search term.
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                    
+                                    <div>
+                                        <h3 className="text-xl font-semibold mb-6">Add YouTube Channel</h3>
+                                        <div className="search-box">
+                                            <input
+                                                type="text"
+                                                placeholder="Enter YouTube channel URL"
+                                                value={youtubeUrl}
+                                                onChange={(e) => setYoutubeUrl(e.target.value)}
+                                                className="input-field flex-1"
+                                                onKeyPress={(e) => e.key === 'Enter' && handleYoutubeSubscribe()}
+                                            />
+                                            <button 
+                                                onClick={handleYoutubeSubscribe} 
+                                                className="btn-primary"
+                                                disabled={!youtubeUrl.trim()}
+                                            >
+                                                Subscribe
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Right Column */}
@@ -487,114 +790,6 @@
         }
 
         ReactDOM.render(<App />, document.getElementById('root'));
-    </script>
-
-    <div class="subscription-section">
-        <div class="podcast-subscription">
-            <h3>Subscribe to Podcast</h3>
-            <div class="search-box">
-                <input type="text" id="podcast-search" placeholder="Search podcasts...">
-                <button onclick="searchPodcasts()">Search</button>
-            </div>
-            <div id="podcast-results"></div>
-        </div>
-
-        <div class="youtube-subscription">
-            <h3>Subscribe to YouTube Channel</h3>
-            <input type="text" id="youtube-url" placeholder="Enter YouTube channel URL">
-            <button onclick="subscribeToYouTube()">Subscribe</button>
-        </div>
-
-        <div class="subscriptions">
-            <h3>Your Subscriptions</h3>
-            <button onclick="refreshEpisodes()">Refresh Episodes</button>
-            <div id="subscription-list"></div>
-        </div>
-
-        <div class="episodes">
-            <h3>Latest Episodes</h3>
-            <div id="episode-list"></div>
-        </div>
-    </div>
-
-    <script>
-        async function searchPodcasts() {
-            const query = document.getElementById('podcast-search').value;
-            const response = await fetch(`/api/search/podcasts?q=${encodeURIComponent(query)}`);
-            const results = await response.json();
-            displayPodcastResults(results);
-        }
-
-        function displayPodcastResults(results) {
-            const container = document.getElementById('podcast-results');
-            container.innerHTML = results.map(podcast => `
-                <div class="podcast-result">
-                    <img src="${podcast.artwork}" alt="${podcast.title}" width="60">
-                    <div class="podcast-info">
-                        <h4>${podcast.title}</h4>
-                        <p>${podcast.author}</p>
-                        <button onclick="subscribeToPodcast('${podcast.id}', '${podcast.feed_url}')">
-                            Subscribe
-                        </button>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        async function subscribeToPodcast(podcastId, feedUrl) {
-            const response = await fetch('/api/subscribe/podcast', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({id: podcastId, feed_url: feedUrl})
-            });
-            if (response.ok) {
-                alert('Successfully subscribed to podcast!');
-                loadSubscriptions();
-            }
-        }
-
-        async function subscribeToYouTube() {
-            const channelUrl = document.getElementById('youtube-url').value;
-            const response = await fetch('/api/subscribe/youtube', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({url: channelUrl})
-            });
-            if (response.ok) {
-                alert('Successfully subscribed to YouTube channel!');
-                loadSubscriptions();
-            }
-        }
-
-        async function refreshEpisodes() {
-            const response = await fetch('/api/refresh-episodes');
-            const episodes = await response.json();
-            displayEpisodes(episodes);
-        }
-
-        function displayEpisodes(episodes) {
-            const container = document.getElementById('episode-list');
-            container.innerHTML = '';
-            
-            // Display podcast episodes
-            episodes.podcast.forEach(episode => {
-                container.innerHTML += `
-                    <div class="episode">
-                        <h4>${episode.title}</h4>
-                        <p>${episode.description}</p>
-                        <button onclick="processEpisode('${episode.id}')">Process</button>
-                    </div>
-                `;
-            });
-
-            // Display YouTube episodes
-            episodes.youtube.forEach(episode => {
-                // Similar display logic for YouTube episodes
-            });
-        }
-
-        // Load subscriptions on page load
-        window.addEventListener('load', loadSubscriptions);
     </script>
 </body>
 </html> 
