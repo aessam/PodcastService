@@ -67,7 +67,35 @@ async def get_summary(url: str):
             raise HTTPException(status_code=404, detail="Episode not found")
         
         # Check if summary exists
-        if not episode.get('summary_path') or not Path(episode['summary_path']).exists():
+        if not episode.get('summary'):
+            # Try to generate summary if transcript exists
+            if episode.get('transcript_path') and Path(episode['transcript_path']).exists():
+                try:
+                    with open(episode['transcript_path'], 'r', encoding='utf-8') as f:
+                        transcript_text = f.read()
+                    
+                    # Generate summary
+                    summary = service._generate_structured_summary(transcript_text)
+                    if summary:
+                        # Save summary
+                        file_hash = service._generate_file_hash(decoded_url)
+                        summary_path = service.summaries_dir / f"{file_hash}_summary.json"
+                        with open(summary_path, 'w', encoding='utf-8') as f:
+                            json.dump(summary, f, indent=2)
+                        
+                        # Update history entry
+                        episode['summary_path'] = str(summary_path)
+                        episode['has_summary'] = True
+                        episode['summary'] = summary
+                        
+                        # Save updated history
+                        service._save_to_history(episode)
+                        
+                        return {"summary": summary}
+                except Exception as e:
+                    print(f"Error generating summary: {e}")
+                    pass
+            
             raise HTTPException(status_code=404, detail="Summary not found")
         
         # Load summary

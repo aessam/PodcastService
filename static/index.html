@@ -93,6 +93,38 @@
             border-radius: 8px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
+        .history-list {
+            max-height: calc(100vh - 300px);  /* Adjust height to leave space for header */
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e0 #f8f9fa;
+        }
+        .history-list::-webkit-scrollbar {
+            width: 8px;
+        }
+        .history-list::-webkit-scrollbar-track {
+            background: #f8f9fa;
+        }
+        .history-list::-webkit-scrollbar-thumb {
+            background-color: #cbd5e0;
+            border-radius: 4px;
+        }
+        .summary-content {
+            max-height: calc(100vh - 250px);  /* Adjust height to leave space for header */
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e0 #ffffff;
+        }
+        .summary-content::-webkit-scrollbar {
+            width: 8px;
+        }
+        .summary-content::-webkit-scrollbar-track {
+            background: #ffffff;
+        }
+        .summary-content::-webkit-scrollbar-thumb {
+            background-color: #cbd5e0;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -212,8 +244,28 @@
                         fetch(`/api/transcript/${encodeURIComponent(item.url)}`)
                     ]);
 
-                    const summaryData = summaryResponse.ok ? await summaryResponse.json() : null;
+                    let summaryData = summaryResponse.ok ? await summaryResponse.json() : null;
                     const transcriptData = transcriptResponse.ok ? await transcriptResponse.json() : null;
+
+                    // If no summary but has transcript, try to generate summary
+                    if (!summaryData && transcriptData) {
+                        try {
+                            const generateResponse = await fetch(`/api/generate_summary/${encodeURIComponent(item.url)}`, {
+                                method: 'POST'
+                            });
+                            if (generateResponse.ok) {
+                                // Wait a moment for the summary to be generated
+                                await new Promise(resolve => setTimeout(resolve, 2000));
+                                // Try to fetch summary again
+                                const newSummaryResponse = await fetch(`/api/summary/${encodeURIComponent(item.url)}`);
+                                if (newSummaryResponse.ok) {
+                                    summaryData = await newSummaryResponse.json();
+                                }
+                            }
+                        } catch (error) {
+                            console.error('Error generating summary:', error);
+                        }
+                    }
 
                     setSelectedHistoryItem({
                         ...item,
@@ -513,7 +565,7 @@
                                     </div>
                                     <div className="flex-1 overflow-hidden flex flex-col min-h-0">
                                         <h2 className="text-xl font-semibold mb-4 flex-shrink-0">History</h2>
-                                        <div className="space-y-2 overflow-y-auto flex-1">
+                                        <div className="space-y-2 history-list">
                                             {loading ? (
                                                 <div className="text-gray-500">Loading history...</div>
                                             ) : error ? (
@@ -740,7 +792,7 @@
                                             )}
                                         </div>
 
-                                        <div className="flex-1 overflow-y-auto px-6 pb-6">
+                                        <div className="summary-content px-6 pb-6">
                                             {activeTab === 'original' ? (
                                                 selectedHistoryItem.transcript ? (
                                                     <div className="text-gray-600 whitespace-pre-wrap font-mono text-sm">
