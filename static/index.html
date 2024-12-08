@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Podcast Service</title>
+    <title>Podcast Summary</title>
     
     <!-- React and dependencies -->
     <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
@@ -13,602 +13,361 @@
     <!-- Tailwind CSS -->
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     
-    <style type="text/css">
-        .form-group {
-            @apply space-y-2;
+    <style>
+        body {
+            background-color: #f8f9fa;
         }
-
-        .form-label {
-            @apply block text-sm font-medium text-gray-700;
+        .input-field {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 16px;
         }
-
-        .error-message {
-            @apply text-red-600 text-sm mt-1;
+        .btn-primary {
+            background-color: #4F7DF3;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
         }
-
-        .success-message {
-            @apply text-green-600 text-sm mt-1;
+        .btn-primary:hover {
+            background-color: #3b6ce0;
+        }
+        .history-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .tab-active {
+            border-bottom: 2px solid #000;
+            font-weight: 500;
         }
     </style>
 </head>
-<body class="bg-gray-100">
-    <div id="root">
-        <div class="flex items-center justify-center min-h-screen">
-            <div class="text-xl text-gray-600">Loading application...</div>
-        </div>
-    </div>
+<body>
+    <div id="root"></div>
     
-    <!-- React Components -->
-    <script>
-        // Global components object to store loaded components
-        window.Components = {};
-    </script>
-
     <script type="text/babel">
-        // Summary Section Component
-        function SummarySection({ title, content }) {
-            if (!content || (Array.isArray(content) && content.length === 0)) {
-                return null;
-            }
-
-            return (
-                <div className="mt-4">
-                    <h5 className="text-sm font-semibold text-gray-900">{title}</h5>
-                    {Array.isArray(content) ? (
-                        <ul className="mt-2 list-disc list-inside text-sm text-gray-600 space-y-1">
-                            {content.map((item, index) => (
-                                <li key={index}>{item}</li>
-                            ))}
-                        </ul>
-                    ) : (
-                        <p className="mt-2 text-sm text-gray-600 whitespace-pre-wrap">{content}</p>
-                    )}
-                </div>
-            );
-        }
-
-        // Dashboard Component
-        window.Components.Dashboard = function Dashboard({ settings, setSettings }) {
+        function Dashboard() {
             const [url, setUrl] = React.useState('');
-            const [title, setTitle] = React.useState('');
-            const [processing, setProcessing] = React.useState(false);
-            const [message, setMessage] = React.useState(null);
+            const [activeTab, setActiveTab] = React.useState('summary');
+            const [selectedHistoryItem, setSelectedHistoryItem] = React.useState(null);
             const [history, setHistory] = React.useState([]);
-            const [loadingHistory, setLoadingHistory] = React.useState(true);
-            const [selectedEpisode, setSelectedEpisode] = React.useState(null);
+            const [loading, setLoading] = React.useState(true);
+            const [error, setError] = React.useState(null);
+            const [isGeneratingAudio, setIsGeneratingAudio] = React.useState(false);
+            const [audioFiles, setAudioFiles] = React.useState([]);
+            const audioRef = React.useRef(null);
+            const [currentAudioIndex, setCurrentAudioIndex] = React.useState(0);
 
             React.useEffect(() => {
-                // Load history when component mounts
                 fetchHistory();
             }, []);
 
             const fetchHistory = async () => {
                 try {
                     const response = await fetch('/api/history');
-                    if (response.ok) {
-                        const data = await response.json();
-                        setHistory(data);
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch history');
                     }
+                    const data = await response.json();
+                    setHistory(data);
                 } catch (error) {
                     console.error('Error fetching history:', error);
-                    setMessage({
-                        type: 'error',
-                        text: 'Failed to load history'
-                    });
+                    setError('Failed to load history');
                 } finally {
-                    setLoadingHistory(false);
+                    setLoading(false);
                 }
             };
 
             const handleSubmit = async (e) => {
                 e.preventDefault();
-                setProcessing(true);
-                setMessage(null);
+                if (!url.trim()) return;
 
                 try {
-                    const params = new URLSearchParams({ url });
-                    if (title) {
-                        params.append('title', title);
-                    }
-
-                    const response = await fetch(`/api/process/episode?${params.toString()}`, {
+                    const response = await fetch(`/api/process/episode?url=${encodeURIComponent(url)}`, {
                         method: 'POST'
                     });
-
+                    
                     if (!response.ok) {
                         throw new Error('Failed to process episode');
                     }
 
-                    setMessage({
-                        type: 'success',
-                        text: 'Processing started successfully!'
-                    });
+                    // Clear input and refresh history
                     setUrl('');
-                    setTitle('');
-                    
-                    // Refresh history
                     fetchHistory();
                 } catch (error) {
-                    console.error('Processing error:', error);
-                    setMessage({
-                        type: 'error',
-                        text: error.message
-                    });
-                } finally {
-                    setProcessing(false);
+                    console.error('Error processing episode:', error);
+                    setError('Failed to process episode');
                 }
             };
 
-            const formatDate = (dateString) => {
-                return new Date(dateString).toLocaleString();
+            const handleHistoryItemClick = async (item) => {
+                setSelectedHistoryItem(item);
+                try {
+                    // Fetch both summary and transcript
+                    const [summaryResponse, transcriptResponse] = await Promise.all([
+                        fetch(`/api/summary/${encodeURIComponent(item.url)}`),
+                        fetch(`/api/transcript/${encodeURIComponent(item.url)}`)
+                    ]);
+
+                    const summaryData = summaryResponse.ok ? await summaryResponse.json() : null;
+                    const transcriptData = transcriptResponse.ok ? await transcriptResponse.json() : null;
+
+                    setSelectedHistoryItem({
+                        ...item,
+                        summary: summaryData && summaryData.summary ? summaryData.summary : null,
+                        transcript: transcriptData && transcriptData.transcript ? transcriptData.transcript : null
+                    });
+                } catch (error) {
+                    console.error('Error fetching data:', error);
+                    setError('Failed to load episode data');
+                }
             };
 
-            const isEpisodeSelected = (episode) => {
-                return selectedEpisode && selectedEpisode.url === episode.url;
+            const handleReadOutLoud = async () => {
+                if (!selectedHistoryItem || !selectedHistoryItem.id) return;
+                
+                setIsGeneratingAudio(true);
+                try {
+                    const response = await fetch(`/api/tts/playlist/${encodeURIComponent(selectedHistoryItem.id)}`);
+                    if (!response.ok) {
+                        throw new Error('Failed to generate audio');
+                    }
+                    
+                    const data = await response.json();
+                    if (data.audio_files && data.audio_files.length > 0) {
+                        setAudioFiles(data.audio_files);
+                        setCurrentAudioIndex(0);
+                        
+                        // Start playing the first file
+                        if (audioRef.current) {
+                            audioRef.current.src = data.audio_files[0].url;
+                            audioRef.current.play();
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error generating audio:', error);
+                    setError('Failed to generate audio');
+                } finally {
+                    setIsGeneratingAudio(false);
+                }
+            };
+
+            const handleAudioEnded = () => {
+                if (currentAudioIndex < audioFiles.length - 1) {
+                    setCurrentAudioIndex(prev => {
+                        const nextIndex = prev + 1;
+                        if (audioRef.current) {
+                            audioRef.current.src = audioFiles[nextIndex].url;
+                            audioRef.current.play();
+                        }
+                        return nextIndex;
+                    });
+                }
+            };
+
+            const renderSummaryContent = (summary) => {
+                if (!summary) {
+                    return <div className="text-gray-500">No summary available</div>;
+                }
+
+                return (
+                    <div className="space-y-6">
+                        {summary.comprehensive_summary && (
+                            <div>
+                                <h3 className="text-lg font-medium mb-2">Comprehensive Summary</h3>
+                                <p className="text-gray-600">{summary.comprehensive_summary}</p>
+                            </div>
+                        )}
+                        
+                        {summary.key_insights && Array.isArray(summary.key_insights) && summary.key_insights.length > 0 && (
+                            <div>
+                                <h3 className="text-lg font-medium mb-2">Key Insights</h3>
+                                <ul className="space-y-2 text-gray-600">
+                                    {summary.key_insights.map((point, index) => (
+                                        <li key={index}>• {point}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        {summary.action_items && Array.isArray(summary.action_items) && summary.action_items.length > 0 && (
+                            <div>
+                                <h3 className="text-lg font-medium mb-2">Action Items</h3>
+                                <ul className="space-y-2 text-gray-600">
+                                    {summary.action_items.map((item, index) => (
+                                        <li key={index}>• {item}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                    </div>
+                );
             };
 
             return (
-                <div className="space-y-8">
-                    {/* Process New Episode Form */}
-                    <div className="bg-white shadow sm:rounded-lg">
-                        <div className="px-4 py-5 sm:p-6">
-                            <h3 className="text-lg leading-6 font-medium text-gray-900">
-                                Process New Episode
-                            </h3>
-                            <div className="mt-2 max-w-xl text-sm text-gray-500">
-                                <p>Enter a podcast episode URL to start processing.</p>
+                <div className="max-w-6xl mx-auto p-6">
+                    <div className="grid grid-cols-2 gap-8">
+                        {/* Left Column */}
+                        <div>
+                            <h1 className="text-2xl font-semibold mb-6">Podcast summary</h1>
+                            
+                            <div className="bg-white p-6 rounded-lg shadow-sm mb-8">
+                                <input
+                                    type="text"
+                                    placeholder="Paste the episode URL"
+                                    value={url}
+                                    onChange={(e) => setUrl(e.target.value)}
+                                    className="input-field"
+                                />
+                                <button onClick={handleSubmit} className="btn-primary">
+                                    Summarize
+                                </button>
                             </div>
-                            <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-                                <div>
-                                    <label htmlFor="url" className="block text-sm font-medium text-gray-700">
-                                        Episode URL
-                                    </label>
-                                    <div className="mt-1">
-                                        <input
-                                            type="url"
-                                            name="url"
-                                            id="url"
-                                            required
-                                            value={url}
-                                            onChange={(e) => setUrl(e.target.value)}
-                                            className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md"
-                                            placeholder="https://example.com/podcast-episode"
-                                        />
-                                    </div>
-                                </div>
 
-                                <div>
-                                    <label htmlFor="title" className="block text-sm font-medium text-gray-700">
-                                        Custom Title (Optional)
-                                    </label>
-                                    <div className="mt-1">
-                                        <input
-                                            type="text"
-                                            name="title"
-                                            id="title"
-                                            value={title}
-                                            onChange={(e) => setTitle(e.target.value)}
-                                            className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md"
-                                            placeholder="My Podcast Episode"
-                                        />
-                                    </div>
+                            <div>
+                                <h2 className="text-xl font-semibold mb-4">History</h2>
+                                <div className="space-y-2">
+                                    {loading ? (
+                                        <div className="text-gray-500">Loading history...</div>
+                                    ) : error ? (
+                                        <div className="text-red-500">{error}</div>
+                                    ) : history.length === 0 ? (
+                                        <div className="text-gray-500">No episodes processed yet</div>
+                                    ) : (
+                                        history.map(item => (
+                                            <div 
+                                                key={item.id} 
+                                                className={`history-item cursor-pointer hover:bg-gray-50 ${selectedHistoryItem && selectedHistoryItem.id === item.id ? 'bg-gray-50' : ''}`}
+                                                onClick={() => handleHistoryItemClick(item)}
+                                            >
+                                                <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500" viewBox="0 0 20 20" fill="currentColor">
+                                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                                                    </svg>
+                                                </div>
+                                                <div>
+                                                    <div className="font-medium">{item.title || 'Untitled Episode'}</div>
+                                                    <div className="text-sm text-gray-500">
+                                                        {new Date(item.processed_at).toLocaleDateString()}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
                                 </div>
+                            </div>
+                        </div>
 
-                                <div>
-                                    <button
-                                        type="submit"
-                                        disabled={processing}
-                                        className={`inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white ${
-                                            processing
-                                                ? 'bg-indigo-400 cursor-not-allowed'
-                                                : 'bg-indigo-600 hover:bg-indigo-700'
-                                        }`}
-                                    >
-                                        {processing ? "Processing..." : "Process Episode"}
-                                    </button>
+                        {/* Right Column */}
+                        <div className="bg-white p-6 rounded-lg shadow-sm">
+                            <div className="flex gap-8 mb-6">
+                                <button 
+                                    className={`pb-2 ${activeTab === 'original' ? 'tab-active' : ''}`}
+                                    onClick={() => setActiveTab('original')}
+                                >
+                                    Original Content
+                                </button>
+                                <button 
+                                    className={`pb-2 ${activeTab === 'summary' ? 'tab-active' : ''}`}
+                                    onClick={() => setActiveTab('summary')}
+                                >
+                                    Summary
+                                </button>
+                            </div>
+
+                            {selectedHistoryItem ? (
+                                <div className="mb-6">
+                                    <h2 className="text-xl font-semibold mb-4">
+                                        {activeTab === 'original' ? 'Original Content' : 'Episode Summary'}
+                                    </h2>
+                                    
+                                    {activeTab === 'summary' && (
+                                        <div>
+                                            <button 
+                                                onClick={handleReadOutLoud}
+                                                disabled={isGeneratingAudio}
+                                                className={`btn-primary flex items-center justify-center gap-2 mb-6 ${isGeneratingAudio ? 'opacity-75 cursor-not-allowed' : ''}`}
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414z" clipRule="evenodd" />
+                                                </svg>
+                                                {isGeneratingAudio ? 'Generating audio...' : 'Read out loud'}
+                                            </button>
+                                            
+                                            {audioFiles.length > 0 && (
+                                                <div className="mb-6">
+                                                    <audio 
+                                                        ref={audioRef}
+                                                        className="w-full" 
+                                                        controls
+                                                        onEnded={handleAudioEnded}
+                                                    >
+                                                        Your browser does not support the audio element.
+                                                    </audio>
+                                                    <div className="text-sm text-gray-500 mt-1">
+                                                        Playing section {currentAudioIndex + 1} of {audioFiles.length}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {activeTab === 'original' ? (
+                                        selectedHistoryItem.transcript ? (
+                                            <div className="text-gray-600 whitespace-pre-wrap font-mono text-sm">
+                                                {selectedHistoryItem.transcript}
+                                            </div>
+                                        ) : (
+                                            <div className="text-gray-500">Loading transcript...</div>
+                                        )
+                                    ) : (
+                                        selectedHistoryItem.summary ? (
+                                            renderSummaryContent(selectedHistoryItem.summary)
+                                        ) : (
+                                            <div className="text-gray-500">Loading summary...</div>
+                                        )
+                                    )}
                                 </div>
-                            </form>
-
-                            {message && (
-                                <div className={`mt-4 p-4 rounded-md ${
-                                    message.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-                                }`}>
-                                    {message.text}
+                            ) : (
+                                <div className="flex items-center justify-center h-64 text-gray-500">
+                                    Select a podcast from history to view its content
                                 </div>
                             )}
                         </div>
                     </div>
-
-                    {/* Processing History */}
-                    <div className="bg-white shadow sm:rounded-lg">
-                        <div className="px-4 py-5 sm:p-6">
-                            <h3 className="text-lg leading-6 font-medium text-gray-900">
-                                Processing History
-                            </h3>
-                            <div className="mt-4">
-                                {loadingHistory ? (
-                                    <div className="text-gray-500">Loading history...</div>
-                                ) : history.length === 0 ? (
-                                    <div className="text-gray-500">No episodes processed yet.</div>
-                                ) : (
-                                    <div className="space-y-4">
-                                        {history.map((episode) => (
-                                            <div key={episode.id} className="border rounded-lg p-4">
-                                                <div className="flex justify-between items-start">
-                                                    <div>
-                                                        <h4 className="text-sm font-medium text-gray-900">
-                                                            {episode.title || 'Untitled Episode'}
-                                                        </h4>
-                                                        <p className="text-sm text-gray-500 mt-1">{episode.url}</p>
-                                                        <p className="text-xs text-gray-400 mt-1">
-                                                            Processed: {formatDate(episode.processed_at)}
-                                                        </p>
-                                                        
-                                                        <div className="mt-2 space-x-4">
-                                                            {/* Summary Toggle Button */}
-                                                            {episode.has_summary && (
-                                                                <button
-                                                                    onClick={async () => {
-                                                                        if (!isEpisodeSelected(episode)) {
-                                                                            try {
-                                                                                const response = await fetch(`/api/summary/${encodeURIComponent(episode.url)}`);
-                                                                                if (response.ok) {
-                                                                                    const data = await response.json();
-                                                                                    const updatedEpisode = { 
-                                                                                        ...episode, 
-                                                                                        summary: data.summary,
-                                                                                        has_summary: true,
-                                                                                        showTranscript: false
-                                                                                    };
-                                                                                    const newHistory = history.map(ep => 
-                                                                                        ep.id === episode.id ? updatedEpisode : ep
-                                                                                    );
-                                                                                    setHistory(newHistory);
-                                                                                    setSelectedEpisode(updatedEpisode);
-                                                                                } else {
-                                                                                    const errorData = await response.json();
-                                                                                    console.error('Failed to fetch summary:', errorData);
-                                                                                    setMessage({
-                                                                                        type: 'error',
-                                                                                        text: errorData.detail || 'Failed to load summary'
-                                                                                    });
-                                                                                }
-                                                                            } catch (error) {
-                                                                                console.error('Error fetching summary:', error);
-                                                                                setMessage({
-                                                                                    type: 'error',
-                                                                                    text: 'Error loading summary'
-                                                                                });
-                                                                            }
-                                                                        } else {
-                                                                            setSelectedEpisode(null);
-                                                                        }
-                                                                    }}
-                                                                    className="text-sm text-indigo-600 hover:text-indigo-500"
-                                                                >
-                                                                    {isEpisodeSelected(episode) && !episode.showTranscript ? 'Hide Summary' : 'Show Summary'}
-                                                                </button>
-                                                            )}
-
-                                                            {/* Transcript Toggle Button */}
-                                                            {episode.transcript_path && (
-                                                                <button
-                                                                    onClick={async () => {
-                                                                        if (!isEpisodeSelected(episode) || !episode.showTranscript) {
-                                                                            try {
-                                                                                const response = await fetch(`/api/transcript/${encodeURIComponent(episode.url)}`);
-                                                                                if (response.ok) {
-                                                                                    const data = await response.json();
-                                                                                    const updatedEpisode = { 
-                                                                                        ...episode, 
-                                                                                        transcript: data.transcript,
-                                                                                        showTranscript: true,
-                                                                                        summary: null
-                                                                                    };
-                                                                                    const newHistory = history.map(ep => 
-                                                                                        ep.id === episode.id ? updatedEpisode : ep
-                                                                                    );
-                                                                                    setHistory(newHistory);
-                                                                                    setSelectedEpisode(updatedEpisode);
-                                                                                } else {
-                                                                                    const errorData = await response.json();
-                                                                                    console.error('Failed to fetch transcript:', errorData);
-                                                                                    setMessage({
-                                                                                        type: 'error',
-                                                                                        text: errorData.detail || 'Failed to load transcript'
-                                                                                    });
-                                                                                }
-                                                                            } catch (error) {
-                                                                                console.error('Error fetching transcript:', error);
-                                                                                setMessage({
-                                                                                    type: 'error',
-                                                                                    text: 'Error loading transcript'
-                                                                                });
-                                                                            }
-                                                                        } else {
-                                                                            setSelectedEpisode(null);
-                                                                        }
-                                                                    }}
-                                                                    className="text-sm text-indigo-600 hover:text-indigo-500"
-                                                                >
-                                                                    {isEpisodeSelected(episode) && episode.showTranscript ? 'Hide Transcript' : 'Show Transcript'}
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                        
-                                                        {/* Structured Summary */}
-                                                        {isEpisodeSelected(episode) && !episode.showTranscript && episode.summary && (
-                                                            <div className="mt-4 space-y-4 bg-gray-50 p-4 rounded-lg">
-                                                                {episode.summary.comprehensive_summary && (
-                                                                    <div>
-                                                                        <div className="flex justify-between items-center">
-                                                                            <h4 className="text-sm font-semibold text-gray-900">Summary</h4>
-                                                                            <button
-                                                                                onClick={async () => {
-                                                                                    try {
-                                                                                        const response = await fetch(`/api/tts/playlist/${encodeURIComponent(episode.id)}`);
-                                                                                        if (response.ok) {
-                                                                                            const data = await response.json();
-                                                                                            const updatedEpisode = {
-                                                                                                ...episode,
-                                                                                                audioFiles: data.audio_files
-                                                                                            };
-                                                                                            setHistory(history.map(ep =>
-                                                                                                ep.id === episode.id ? updatedEpisode : ep
-                                                                                            ));
-                                                                                            setSelectedEpisode(updatedEpisode);
-                                                                                        } else {
-                                                                                            const errorData = await response.json();
-                                                                                            setMessage({
-                                                                                                type: 'error',
-                                                                                                text: errorData.detail || 'Failed to generate audio'
-                                                                                            });
-                                                                                        }
-                                                                                    } catch (error) {
-                                                                                        console.error('Error generating audio:', error);
-                                                                                        setMessage({
-                                                                                            type: 'error',
-                                                                                            text: 'Error generating audio'
-                                                                                        });
-                                                                                    }
-                                                                                }}
-                                                                                className="text-sm text-indigo-600 hover:text-indigo-500 flex items-center"
-                                                                            >
-                                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                                                                                    <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414z" clipRule="evenodd" />
-                                                                                </svg>
-                                                                                Read Aloud
-                                                                            </button>
-                                                                        </div>
-                                                                        {episode.audioFiles && episode.audioFiles.length > 0 && (
-                                                                            <div className="mt-2 mb-4">
-                                                                                <div className="audio-player">
-                                                                                    <audio
-                                                                                        id={`audio-${episode.id}`}
-                                                                                        className="w-full"
-                                                                                        controls
-                                                                                        src={episode.audioFiles[0].url}
-                                                                                        onEnded={(e) => {
-                                                                                            const audioElement = e.target;
-                                                                                            const currentUrl = audioElement.src;
-                                                                                            // Remove the base URL to match with our stored URLs
-                                                                                            const currentPath = currentUrl.split('/api/tts/audio/')[1];
-                                                                                            const currentIndex = episode.audioFiles.findIndex(
-                                                                                                file => file.url === `/api/tts/audio/${currentPath}`
-                                                                                            );
-                                                                                            console.log('Current index:', currentIndex, 'Total files:', episode.audioFiles.length);
-                                                                                            if (currentIndex < episode.audioFiles.length - 1) {
-                                                                                                const nextFile = episode.audioFiles[currentIndex + 1];
-                                                                                                audioElement.src = nextFile.url;
-                                                                                                audioElement.play();
-                                                                                                // Update the playing section text
-                                                                                                const sectionText = audioElement.parentElement.nextElementSibling;
-                                                                                                sectionText.textContent = `Playing: ${nextFile.section} (${currentIndex + 2} of ${episode.audioFiles.length})`;
-                                                                                            }
-                                                                                        }}
-                                                                                    >
-                                                                                        Your browser does not support the audio element.
-                                                                                    </audio>
-                                                                                    <div className="text-xs text-gray-500 mt-1">
-                                                                                        Playing: {episode.audioFiles[0].section} (1 of {episode.audioFiles.length})
-                                                                                    </div>
-                                                                                </div>
-                                                                            </div>
-                                                                        )}
-                                                                        <p className="mt-2 text-sm text-gray-600 whitespace-pre-wrap">
-                                                                            {episode.summary.comprehensive_summary}
-                                                                        </p>
-                                                                    </div>
-                                                                )}
-                                                                
-                                                                {episode.summary.action_items && episode.summary.action_items.length > 0 && (
-                                                                    <div>
-                                                                        <div className="flex justify-between items-center">
-                                                                            <h4 className="text-sm font-semibold text-gray-900">Action Items</h4>
-                                                                        </div>
-                                                                        <ul className="mt-2 list-disc list-inside text-sm text-gray-600">
-                                                                            {episode.summary.action_items.map((item, index) => (
-                                                                                <li key={index}>{item}</li>
-                                                                            ))}
-                                                                        </ul>
-                                                                    </div>
-                                                                )}
-                                                                
-                                                                {episode.summary.key_insights && episode.summary.key_insights.length > 0 && (
-                                                                    <div>
-                                                                        <div className="flex justify-between items-center">
-                                                                            <h4 className="text-sm font-semibold text-gray-900">Key Insights & Nuances</h4>
-                                                                        </div>
-                                                                        <ul className="mt-2 list-disc list-inside text-sm text-gray-600">
-                                                                            {episode.summary.key_insights.map((item, index) => (
-                                                                                <li key={index}>{item}</li>
-                                                                            ))}
-                                                                        </ul>
-                                                                    </div>
-                                                                )}
-                                                                
-                                                                {episode.summary.wisdom && episode.summary.wisdom.length > 0 && (
-                                                                    <div>
-                                                                        <div className="flex justify-between items-center">
-                                                                            <h4 className="text-sm font-semibold text-gray-900">Wisdom & Principles</h4>
-                                                                        </div>
-                                                                        <ul className="mt-2 list-disc list-inside text-sm text-gray-600">
-                                                                            {episode.summary.wisdom.map((item, index) => (
-                                                                                <li key={index}>{item}</li>
-                                                                            ))}
-                                                                        </ul>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        )}
-
-                                                        {/* Transcript Display */}
-                                                        {isEpisodeSelected(episode) && episode.showTranscript && episode.transcript && (
-                                                            <div className="mt-4 bg-gray-50 p-4 rounded-lg">
-                                                                <div className="flex justify-between items-start">
-                                                                    <h4 className="text-sm font-semibold text-gray-900">Transcript</h4>
-                                                                    {!episode.has_summary && (
-                                                                        <button
-                                                                            onClick={async () => {
-                                                                                try {
-                                                                                    const response = await fetch(`/api/generate_summary/${encodeURIComponent(episode.url)}`, {
-                                                                                        method: 'POST'
-                                                                                    });
-                                                                                    if (response.ok) {
-                                                                                        setMessage({
-                                                                                            type: 'success',
-                                                                                            text: 'Summary generation started. This may take a few minutes.'
-                                                                                        });
-                                                                                        // Poll for summary completion
-                                                                                        const checkSummary = async () => {
-                                                                                            const summaryResponse = await fetch(`/api/summary/${encodeURIComponent(episode.url)}`);
-                                                                                            if (summaryResponse.ok) {
-                                                                                                const data = await summaryResponse.json();
-                                                                                                const updatedEpisode = { 
-                                                                                                    ...episode, 
-                                                                                                    summary: data.summary,
-                                                                                                    has_summary: true,
-                                                                                                    showTranscript: false
-                                                                                                };
-                                                                                                const newHistory = history.map(ep => 
-                                                                                                    ep.id === episode.id ? updatedEpisode : ep
-                                                                                                );
-                                                                                                setHistory(newHistory);
-                                                                                                setSelectedEpisode(updatedEpisode);
-                                                                                                setMessage({
-                                                                                                    type: 'success',
-                                                                                                    text: 'Summary generated successfully!'
-                                                                                                });
-                                                                                            } else {
-                                                                                                // If summary is not ready, try again in 5 seconds
-                                                                                                setTimeout(checkSummary, 5000);
-                                                                                            }
-                                                                                        };
-                                                                                        setTimeout(checkSummary, 5000);
-                                                                                    } else {
-                                                                                        const errorData = await response.json();
-                                                                                        setMessage({
-                                                                                            type: 'error',
-                                                                                            text: errorData.detail || 'Failed to generate summary'
-                                                                                        });
-                                                                                    }
-                                                                                } catch (error) {
-                                                                                    console.error('Error generating summary:', error);
-                                                                                    setMessage({
-                                                                                        type: 'error',
-                                                                                        text: 'Error generating summary'
-                                                                                    });
-                                                                                }
-                                                                            }}
-                                                                            className="text-sm text-indigo-600 hover:text-indigo-500"
-                                                                        >
-                                                                            Generate Summary
-                                                                        </button>
-                                                                    )}
-                                                                </div>
-                                                                <p className="mt-2 text-sm text-gray-600 whitespace-pre-wrap font-mono">
-                                                                    {episode.transcript}
-                                                                </p>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
+                    
+                    {/* Hidden audio element for TTS playback */}
+                    <audio 
+                        ref={audioRef}
+                        className="hidden"
+                        onEnded={handleAudioEnded}
+                    >
+                        Your browser does not support the audio element.
+                    </audio>
                 </div>
             );
-        };
+        }
 
         function App() {
-            const [settings, setSettings] = React.useState(null);
-            const [error, setError] = React.useState(null);
-            const [loading, setLoading] = React.useState(true);
-            
-            React.useEffect(() => {
-                // Load settings
-                const loadSettings = async () => {
-                    try {
-                        const response = await fetch('/api/settings');
-                        if (response.ok) {
-                            const settings = await response.json();
-                            setSettings(settings);
-                        }
-                    } catch (error) {
-                        console.error('Settings load failed:', error);
-                        setError('Failed to load settings');
-                    } finally {
-                        setLoading(false);
-                    }
-                };
-                
-                loadSettings();
-            }, []);
-            
-            if (loading) {
-                return (
-                    <div className="flex items-center justify-center min-h-screen">
-                        <div className="text-xl text-gray-600">Loading...</div>
-                    </div>
-                );
-            }
-            
-            if (error) {
-                return (
-                    <div className="flex items-center justify-center min-h-screen">
-                        <div className="text-xl text-red-600">{error}</div>
-                    </div>
-                );
-            }
-            
             return (
                 <div className="min-h-screen">
-                    <nav className="bg-indigo-600 text-white shadow-lg">
-                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                            <div className="flex justify-between h-16">
-                                <div className="flex items-center">
-                                    <span className="text-xl font-bold">Podcast Service</span>
-                                </div>
-                            </div>
-                        </div>
-                    </nav>
-                    
-                    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                        <Components.Dashboard settings={settings} setSettings={setSettings} />
+                    <main>
+                        <Dashboard />
                     </main>
                 </div>
             );
         }
 
-        // Render the app
-        ReactDOM.render(
-            <App />,
-            document.getElementById('root')
-        );
+        ReactDOM.render(<App />, document.getElementById('root'));
     </script>
 </body>
 </html> 
