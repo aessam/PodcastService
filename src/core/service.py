@@ -100,7 +100,7 @@ class PodcastService:
     
     def _chunk_text(self, text: str, max_chunk_size: int) -> List[str]:
         """Split text into chunks of roughly equal size, trying to break at sentence boundaries"""
-        print(f"Chunking text with max size: {max_chunk_size} characters")
+        logger.info(f"Chunking text with max size: {max_chunk_size} characters")
         
         # Remove extra whitespace but preserve some paragraph breaks
         text = '\n'.join(' '.join(line.split()) for line in text.split('\n') if line.strip())
@@ -111,8 +111,12 @@ class PodcastService:
         
         chunks = []
         
-        # Calculate a smaller chunk size to account for prompt overhead
-        effective_chunk_size = max_chunk_size // 2  # Reduce chunk size to leave room for prompt
+        # Calculate optimal chunk size to avoid very small last chunk
+        total_length = len(text)
+        optimal_chunks = (total_length + max_chunk_size - 1) // max_chunk_size
+        optimal_chunk_size = total_length // optimal_chunks
+        
+        logger.info(f"Total length: {total_length}, Optimal chunks: {optimal_chunks}, Optimal chunk size: {optimal_chunk_size}")
         
         # First try to split by paragraphs
         paragraphs = text.split('\n')
@@ -141,31 +145,34 @@ class PodcastService:
                 sentence_size = len(sentence) + 1  # +1 for space
                 
                 # If this single sentence is too big, split it into word groups
-                if sentence_size > effective_chunk_size:
-                    # Split into word groups that fit within chunk size
-                    words = sentence.split()
-                    current_group = []
-                    current_group_size = 0
-                    
-                    for word in words:
-                        word_size = len(word) + 1  # +1 for space
-                        if current_group_size + word_size > effective_chunk_size:
-                            if current_group:
-                                chunks.append(' '.join(current_group))
-                            current_group = [word]
-                            current_group_size = word_size
-                        else:
-                            current_group.append(word)
-                            current_group_size += word_size
-                    
-                    if current_group:
-                        chunks.append(' '.join(current_group))
-                    continue
-                
-                # If adding this sentence would exceed the chunk size, start a new chunk
-                if current_size + sentence_size > effective_chunk_size:
+                if sentence_size > optimal_chunk_size:
                     if current_chunk:
                         chunks.append(' '.join(current_chunk))
+                        current_chunk = []
+                        current_size = 0
+                    
+                    # Split long sentence into smaller parts
+                    words = sentence.split()
+                    part = []
+                    part_size = 0
+                    
+                    for word in words:
+                        word_size = len(word) + 1
+                        if part_size + word_size > optimal_chunk_size and part:
+                            chunks.append(' '.join(part))
+                            part = []
+                            part_size = 0
+                        part.append(word)
+                        part_size += word_size
+                    
+                    if part:
+                        current_chunk = part
+                        current_size = part_size
+                    continue
+                
+                # If adding this sentence would exceed the optimal chunk size
+                if current_size + sentence_size > optimal_chunk_size and current_chunk:
+                    chunks.append(' '.join(current_chunk))
                     current_chunk = [sentence]
                     current_size = sentence_size
                 else:
@@ -177,10 +184,10 @@ class PodcastService:
             chunks.append(' '.join(current_chunk))
         
         # Log chunk information
-        print(f"\nCreated {len(chunks)} chunks:")
+        logger.info(f"\nCreated {len(chunks)} chunks:")
         for i, chunk in enumerate(chunks, 1):
             chunk_tokens = len(chunk.split())  # Simple token estimation
-            print(f"Chunk {i}: {len(chunk)} chars, ~{chunk_tokens} tokens")
+            logger.info(f"Chunk {i}: {len(chunk)} chars, ~{chunk_tokens} tokens")
         
         return chunks
 
@@ -245,76 +252,65 @@ class PodcastService:
             logger.error(f"Error detecting language: {e}")
             return "en"  # Default to English if detection fails
 
-    def _generate_structured_summary(self, transcript_text: str) -> Dict:
-        """Generate a structured summary with key insights and learnings"""
+    def _generate_structured_summary(self, transcript_text: str, target_language: str = "en") -> Dict:
+        """Generate a structured summary with key insights and learnings in the specified language"""
         try:
-            lang_code = self._detect_language_from_text(transcript_text)
-            print(f"Detected language: {lang_code}")
+            # Detect source language if not specified
+            source_language = self._detect_language_from_text(transcript_text)
+            logger.info(f"Source language: {source_language}, Target language: {target_language}")
+
+            # Split text into manageable chunks
+            chunks = self._chunk_text(transcript_text, 4000)  # Adjust chunk size as needed
             
-            # Calculate max chunk size based on token limit
-            max_tokens = 8192
-            prompt_overhead = 2000  # Reduced overhead
-            response_overhead = 1000  # Tokens for expected response
-            
-            # Calculate available tokens for the transcript text
-            available_tokens = max_tokens - prompt_overhead - response_overhead
-            
-            # Convert to characters (using 4 chars per token as average)
-            chars_per_token = 2 if lang_code in ['ar', 'he', 'fa'] else 4
-            max_chunk_size = (available_tokens * chars_per_token) // 2  # Half the chunk size
-            
-            print(f"Using max chunk size of {max_chunk_size} characters")
-            print(f"Language: {lang_code}, using {chars_per_token} chars per token")
-            
-            # If text is small enough, process it as a single chunk
-            if len(transcript_text) <= max_chunk_size:
-                summary = self._process_chunk(transcript_text, 1, 1, lang_code)
-                return summary if summary else {"comprehensive_summary": "", "action_items": [], "key_insights": [], "wisdom": []}
-            
-            # Split transcript into chunks
-            chunks = self._chunk_text(transcript_text, max_chunk_size)
-            
-            # Limit number of chunks to prevent over-summarization
-            max_chunks = 5
-            if len(chunks) > max_chunks:
-                print(f"Reducing {len(chunks)} chunks to {max_chunks} to prevent over-summarization")
-                # Combine chunks to get closer to max_chunks
-                new_chunks = []
-                chunk_size = len(chunks) // max_chunks
-                for i in range(0, len(chunks), chunk_size):
-                    combined_chunk = ' '.join(chunks[i:i + chunk_size])
-                    new_chunks.append(combined_chunk)
-                chunks = new_chunks[:max_chunks]
-            
-            chunk_summaries = []
-            
-            # Process each chunk
-            for i, chunk in enumerate(chunks, 1):
-                estimated_tokens = self._estimate_tokens(chunk)
+            summaries = []
+            for chunk in chunks:
+                # Create system prompt with language instruction
+                system_prompt = f"""You are a highly skilled AI that creates detailed summaries. 
+                The user will provide a transcript chunk, and you should generate a structured summary in {target_language}.
+                Focus on extracting key information and insights.
                 
-                if estimated_tokens > available_tokens:
-                    print(f"Warning: Chunk {i} is too large ({estimated_tokens} tokens), splitting further...")
-                    subchunks = self._chunk_text(chunk, max_chunk_size // 2)
-                    for j, subchunk in enumerate(subchunks, 1):
-                        print(f"Processing subchunk {j} of {len(subchunks)} from chunk {i}...")
-                        summary = self._process_chunk(subchunk, i, len(chunks), lang_code)
-                        if summary:
-                            chunk_summaries.append(summary)
-                else:
-                    print(f"Processing chunk {i} of {len(chunks)} (estimated tokens: {estimated_tokens}, characters: {len(chunk)})...")
-                    summary = self._process_chunk(chunk, i, len(chunks), lang_code)
-                    if summary:
-                        chunk_summaries.append(summary)
-            
-            if not chunk_summaries:
-                raise RuntimeError("No valid summaries generated from any chunk")
-            
-            # Merge summaries
-            return self._merge_summaries(chunk_summaries)
-            
+                Your response should be in JSON format with the following structure:
+                {{
+                    "comprehensive_summary": "A detailed summary of the main points and discussion",
+                    "key_insights": ["List of key insights and takeaways"],
+                    "action_items": ["List of actionable items or recommendations"],
+                    "wisdom": ["List of wisdom, principles, or deeper learnings"],
+                    "topics": ["List of main topics discussed"]
+                }}
+                
+                All content must be in {target_language}."""
+
+                # Create user prompt
+                user_prompt = f"Please analyze and summarize the following transcript chunk:\n\n{chunk}"
+
+                # Generate summary using OpenAI
+                response = self.openai_client.chat.completions.create(
+                    model="gpt-4",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=1500
+                )
+
+                # Parse the response
+                try:
+                    summary_text = response.choices[0].message.content.strip()
+                    summary_dict = json.loads(summary_text)
+                    summaries.append(summary_dict)
+                except Exception as e:
+                    logger.error(f"Error parsing summary response: {e}")
+                    continue
+
+            # Merge summaries from all chunks
+            final_summary = self._merge_summaries(summaries)
+            return final_summary
+
         except Exception as e:
-            print(f"Error generating structured summary: {e}")
-            raise RuntimeError(f"Failed to generate structured summary: {e}")
+            logger.error(f"Error generating structured summary: {e}")
+            traceback.print_exc()
+            return None
 
     def _process_chunk(self, chunk: str, chunk_num: int, total_chunks: int, lang_code: str) -> Optional[Dict]:
         """Process a single chunk of text and generate a summary"""

@@ -404,3 +404,63 @@ async def get_subscriptions():
         return service.cache_manager.get_all_subscriptions()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) 
+
+@app.post("/api/re_summarize/{episode_id}")
+async def re_summarize(
+    episode_id: str,
+    language: dict,
+    background_tasks: BackgroundTasks
+):
+    try:
+        # Get history
+        history = service.get_history()
+        
+        # Find the episode
+        episode = next((ep for ep in history if ep['id'] == episode_id), None)
+        if not episode:
+            raise HTTPException(status_code=404, detail="Episode not found")
+        
+        # Check if transcript exists
+        if not episode.get('transcript_path') or not Path(episode['transcript_path']).exists():
+            raise HTTPException(status_code=404, detail="Transcript not found")
+        
+        # Start summary generation in background
+        async def generate_summary_task():
+            try:
+                # Read transcript
+                with open(episode['transcript_path'], 'r', encoding='utf-8') as f:
+                    transcript_text = f.read()
+                
+                # Generate summary in specified language
+                summary = service._generate_structured_summary(transcript_text, target_language=language.get('language', 'en'))
+                if not summary:
+                    print("Failed to generate summary")
+                    return
+                
+                # Save summary
+                file_hash = service._generate_file_hash(episode['url'])
+                summary_path = service.summaries_dir / f"{file_hash}_summary_{language.get('language', 'en')}.json"
+                with open(summary_path, 'w', encoding='utf-8') as f:
+                    json.dump(summary, f, indent=2)
+                
+                # Update history entry
+                episode['summary_path'] = str(summary_path)
+                episode['has_summary'] = True
+                episode['summary'] = summary
+                episode['summary_language'] = language.get('language', 'en')
+                
+                # Save updated history
+                service._save_to_history(episode)
+                
+            except Exception as e:
+                print(f"Error in summary generation task: {e}")
+        
+        background_tasks.add_task(generate_summary_task)
+        
+        return {"message": "Summary generation started"}
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error starting summary generation: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) 

@@ -152,6 +152,7 @@
             const [subscriptions, setSubscriptions] = React.useState([]);
             const [episodes, setEpisodes] = React.useState({ podcast: {} });
             const [latestEpisodes, setLatestEpisodes] = React.useState([]);
+            const [selectedLanguage, setSelectedLanguage] = React.useState('en');
 
             const loadSubscriptions = async () => {
                 try {
@@ -452,6 +453,42 @@
                 } catch (error) {
                     console.error('Error processing episode:', error);
                     alert('Failed to process episode. Please try again.');
+                }
+            };
+
+            const handleReSummarize = async (language) => {
+                if (!selectedHistoryItem || !selectedHistoryItem.id) return;
+                
+                setIsGeneratingAudio(true);
+                try {
+                    const response = await fetch(`/api/re_summarize/${encodeURIComponent(selectedHistoryItem.id)}`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            language: language
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('Failed to re-summarize');
+                    }
+                    
+                    const data = await response.json();
+                    if (data.audio_files && data.audio_files.length > 0) {
+                        setAudioFiles(data.audio_files);
+                        setCurrentAudioIndex(0);
+                        
+                        // Start playing the first file
+                        if (audioRef.current) {
+                            audioRef.current.src = data.audio_files[0].url;
+                            audioRef.current.play();
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error re-summarizing:', error);
+                    setError('Failed to re-summarize');
+                } finally {
+                    setIsGeneratingAudio(false);
                 }
             };
 
@@ -797,6 +834,33 @@
                                             
                                             {activeTab === 'summary' && (
                                                 <div>
+                                                    <div className="flex items-center gap-4 mb-6">
+                                                        <select 
+                                                            className="input-field"
+                                                            onChange={(e) => setSelectedLanguage(e.target.value)}
+                                                            value={selectedLanguage}
+                                                        >
+                                                            <option value="en">English</option>
+                                                            <option value="es">Spanish</option>
+                                                            <option value="fr">French</option>
+                                                            <option value="de">German</option>
+                                                            <option value="it">Italian</option>
+                                                            <option value="pt">Portuguese</option>
+                                                            <option value="nl">Dutch</option>
+                                                            <option value="pl">Polish</option>
+                                                            <option value="ru">Russian</option>
+                                                            <option value="ja">Japanese</option>
+                                                            <option value="ko">Korean</option>
+                                                            <option value="zh">Chinese</option>
+                                                            <option value="ar">Arabic</option>
+                                                        </select>
+                                                        <button 
+                                                            onClick={() => handleReSummarize(selectedLanguage)}
+                                                            className="btn-primary flex items-center justify-center gap-2"
+                                                        >
+                                                            Summarize
+                                                        </button>
+                                                    </div>
                                                     <button 
                                                         onClick={handleReadOutLoud}
                                                         disabled={isGeneratingAudio}
