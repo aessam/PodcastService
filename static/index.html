@@ -178,7 +178,7 @@
                     
                     setEpisodes(data);
                     // Get latest episode from each subscription
-                    const latestFromEach = subscriptions
+                    const podcastEpisodes = subscriptions
                         .filter(sub => sub.type === 'podcast')
                         .map(subscription => {
                             // Get all episodes for this subscription
@@ -189,7 +189,37 @@
                             // Return the latest episode if any
                             return subscriptionEpisodes[0];
                         })
-                        .filter(Boolean); // Remove any undefined entries
+                        .filter(Boolean);
+
+                    const youtubeEpisodes = subscriptions
+                        .filter(sub => sub.type === 'youtube')
+                        .map(subscription => {
+                            // Get all episodes for this subscription
+                            const subscriptionEpisodes = Object.values(data.youtube || {})
+                                .filter(episode => episode.subscription_id === subscription.id);
+
+                            // Categorize episodes
+                            const videos = subscriptionEpisodes.filter(ep => !ep.is_short && !ep.is_stream);
+                            const shorts = subscriptionEpisodes.filter(ep => ep.is_short);
+                            const streams = subscriptionEpisodes.filter(ep => ep.is_stream);
+                            
+                            // Sort each category by publish date
+                            const sortByDate = (a, b) => new Date(b.published) - new Date(a.published);
+                            videos.sort(sortByDate);
+                            shorts.sort(sortByDate);
+                            streams.sort(sortByDate);
+                            
+                            // Return array of latest from each category with type labels
+                            return [
+                                videos[0] && { ...videos[0], youtube_type: 'video' },
+                                shorts[0] && { ...shorts[0], youtube_type: 'short' },
+                                streams[0] && { ...streams[0], youtube_type: 'stream' }
+                            ].filter(Boolean);
+                        })
+                        .flat(); // Flatten the array of arrays
+
+                    // Combine both arrays
+                    const latestFromEach = [...podcastEpisodes, ...youtubeEpisodes];
                     
                     setLatestEpisodes(latestFromEach);
                 } catch (error) {
@@ -632,6 +662,11 @@
                                                                 <h4 className="font-medium text-lg">{episode.title || 'Untitled Episode'}</h4>
                                                                 <p className="text-sm text-gray-600">
                                                                     {new Date(episode.published || Date.now()).toLocaleDateString()}
+                                                                    {episode.subscription_type === 'youtube' && (
+                                                                        <span className="ml-2 px-2 py-1 text-xs rounded bg-gray-100">
+                                                                            {episode.youtube_type}
+                                                                        </span>
+                                                                    )}
                                                                 </p>
                                                             </div>
                                                             <button 

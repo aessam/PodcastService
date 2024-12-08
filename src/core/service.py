@@ -9,6 +9,7 @@ import logging
 from langdetect import detect, DetectorFactory
 import yt_dlp
 import requests
+import traceback
 
 from podcast_service.src.core.transcriber import Transcriber
 from podcast_service.src.core.podcast_fetcher import PodcastFetcher
@@ -920,35 +921,94 @@ Format as JSON:
     def subscribe_to_youtube(self, channel_url: str) -> bool:
         """Subscribe to a YouTube channel"""
         try:
+            print(f"\n{'='*50}")
+            print(f"Subscribing to YouTube channel: {channel_url}")
+            print(f"{'='*50}\n")
+            
             # Extract channel ID from URL
+            print("Step 1: Extracting channel ID...")
             channel_id = self._extract_youtube_channel_id(channel_url)
             if not channel_id:
-                return False
+                raise ValueError("Could not extract channel ID from URL")
+            print(f"✓ Extracted channel ID: {channel_id}")
             
+            # Use yt-dlp to get channel info
+            print("\nStep 2: Fetching channel info...")
+            ydl_opts = {
+                'quiet': True,
+                'extract_flat': True,  # Only fetch metadata
+                'no_download': True,   # Don't download anything
+                'skip_download': True  # Skip download
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(f"https://youtube.com/channel/{channel_id}", download=False)
+                channel_title = info.get('channel', '') or info.get('uploader', '')
+            print(f"✓ Got channel title: {channel_title}")
+            
+            print("\nStep 3: Saving subscription...")
             subscription = {
                 'id': channel_id,
                 'url': channel_url,
+                'title': channel_title,
                 'type': 'youtube'
             }
+            print(f"Subscription data: {json.dumps(subscription, indent=2)}")
+            
             self.cache_manager.save_subscription(subscription)
+            print("✓ Subscription saved successfully")
             return True
         except Exception as e:
-            print(f"Error subscribing to YouTube channel: {e}")
+            print(f"\n⚠ Error subscribing to YouTube channel:")
+            print(f"Error type: {type(e).__name__}")
+            print(f"Error message: {str(e)}")
+            print(f"Stack trace:")
+            traceback.print_exc()
             return False
 
     def _extract_youtube_channel_id(self, url: str) -> Optional[str]:
         """Extract YouTube channel ID from URL"""
-        # Basic implementation - you might want to enhance this
-        if 'youtube.com/channel/' in url:
-            return url.split('youtube.com/channel/')[-1].split('/')[0]
-        return None
+        try:
+            print(f"\nExtracting channel ID from URL: {url}")
+            # Handle different YouTube URL formats
+            if 'youtube.com/channel/' in url:
+                print("Detected direct channel URL format")
+                channel_id = url.split('youtube.com/channel/')[-1].split('/')[0]
+                print(f"Extracted channel ID: {channel_id}")
+                return channel_id
+            
+            # For all other formats, use yt-dlp
+            print("Using yt-dlp to extract channel info...")
+            with yt_dlp.YoutubeDL({
+                'quiet': False,
+                'verbose': True,
+                'extract_flat': True,
+                'no_warnings': False
+            }) as ydl:
+                print("Extracting info from URL...")
+                info = ydl.extract_info(url, download=False)
+                print("Got channel info from yt-dlp")
+                
+                channel_id = info.get('channel_id')
+                if not channel_id:
+                    print("No channel ID found in yt-dlp response")
+                    raise ValueError("Could not extract channel ID")
+                
+                print(f"Successfully extracted channel ID: {channel_id}")
+                return channel_id
+        except Exception as e:
+            print(f"\n⚠ Error extracting YouTube channel ID:")
+            print(f"Error type: {type(e).__name__}")
+            print(f"Error message: {str(e)}")
+            print(f"Stack trace:")
+            traceback.print_exc()
+            return None
 
     def refresh_episodes(self) -> Dict:
         """Refresh episodes for all subscriptions"""
         print("Refreshing episodes...")
         try:
             subscriptions = self.cache_manager.get_all_subscriptions()
-            new_episodes = {'podcast': {}}
+            new_episodes = {'podcast': {}, 'youtube': {}}
             
             for sub in subscriptions:
                 print(f"Processing subscription: {sub}")
@@ -968,6 +1028,51 @@ Format as JSON:
                     except Exception as e:
                         print(f"Error fetching episodes for subscription {sub['id']}: {e}")
                         continue
+                elif sub['type'] == 'youtube':
+                    print(f"Fetching videos from channel: {sub['url']}")
+                    try:
+                        ydl_opts = {
+                            'quiet': True,
+                            'extract_flat': True,
+                            'no_download': True,
+                            'skip_download': True,
+                            'playlistend': 30  # Increased to get more videos for categorization
+                        }
+                        
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            channel_info = ydl.extract_info(
+                                f"https://youtube.com/channel/{sub['id']}/videos",
+                                download=False
+                            )
+                            
+                            if channel_info and 'entries' in channel_info:
+                                for video in channel_info['entries']:
+                                    if video:
+                                        video_id = video.get('id')
+                                        if video_id:
+                                            # Determine content type
+                                            is_short = video.get('duration', 0) <= 60  # Shorts are typically ≤ 60 seconds
+                                            is_stream = video.get('was_live', False) or 'stream' in video.get('title', '').lower()
+                                            
+                                            episode = {
+                                                'id': video_id,
+                                                'title': video.get('title', ''),
+                                                'description': video.get('description', ''),
+                                                'published': video.get('upload_date', ''),
+                                                'audio_url': f"https://youtube.com/watch?v={video_id}",
+                                                'duration': video.get('duration', ''),
+                                                'image': video.get('thumbnail', ''),
+                                                'link': f"https://youtube.com/watch?v={video_id}",
+                                                'subscription_id': sub['id'],
+                                                'subscription_type': 'youtube',
+                                                'is_short': is_short,
+                                                'is_stream': is_stream,
+                                                'processed': False
+                                            }
+                                            new_episodes['youtube'][video_id] = episode
+                    except Exception as e:
+                        print(f"Error fetching videos for channel {sub['id']}: {e}")
+                        continue
             
             # Save episodes to cache
             try:
@@ -975,8 +1080,8 @@ Format as JSON:
             except Exception as e:
                 print(f"Error saving episodes to cache: {e}")
             
-            print(f"Found {len(new_episodes['podcast'])} podcast episodes")
+            print(f"Found {len(new_episodes['podcast'])} podcast episodes and {len(new_episodes['youtube'])} YouTube videos")
             return new_episodes
         except Exception as e:
             print(f"Error refreshing episodes: {e}")
-            return {'podcast': {}}
+            return {'podcast': {}, 'youtube': {}}
