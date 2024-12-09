@@ -52,6 +52,12 @@ class PodcastService:
         
         for directory in [self.downloads_dir, self.transcripts_dir, self.summaries_dir]:
             directory.mkdir(parents=True, exist_ok=True)
+        
+        # Get model from environment
+        self.llm_model = os.getenv("LLM_MODEL", "gpt-4")  # Use existing LLM_MODEL from config
+        self.llm_max_tokens = int(os.getenv("LLM_MAX_TOKENS", "32000"))
+        self.llm_temperature = float(os.getenv("LLM_TEMPERATURE", "0.8"))
+        logger.info(f"Using LLM model: {self.llm_model} with max tokens: {self.llm_max_tokens}")
     
     def _get_settings_file(self) -> Path:
         return self.data_dir / "settings.json"
@@ -194,13 +200,12 @@ class PodcastService:
     def _estimate_tokens(self, text: str) -> int:
         """Estimate the number of tokens in a text using TikToken"""
         try:
-            # Use GPT-4's encoding since we're using it for summarization
-            encoding = encoding_for_model("gpt-4o")
+            # Use the configured model's encoding
+            encoding = encoding_for_model(self.llm_model)
             token_count = len(encoding.encode(text))
             logger.info(f"Estimated {token_count} tokens for text of length {len(text)}")
             return token_count
         except Exception as e:
-            # Fallback to conservative estimate if TikToken fails
             logger.warning(f"Error in token estimation using TikToken: {e}, using fallback")
             return len(text) // 4
 
@@ -279,14 +284,14 @@ class PodcastService:
                 try:
                     # Generate summary using OpenAI
                     response = self.openai_client.chat.completions.create(
-                        model="gpt-4o",
+                        model=self.llm_model,
                         messages=[
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_prompt}
                         ],
-                        temperature=0.7,
-                        max_tokens=4000,
-                        response_format={"type": "json_object"}  # Force JSON response
+                        temperature=self.llm_temperature,
+                        max_tokens=4000,  # Consider using self.llm_max_tokens here
+                        response_format={"type": "json_object"}
                     )
 
                     # Parse the response
@@ -375,12 +380,12 @@ Format as JSON:
 
         try:
             response = self.openai_client.chat.completions.create(
-                model="gpt-4o",
+                model=self.llm_model,
                 messages=[
                     {"role": "system", "content": "Create concise podcast summaries."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.7,
+                temperature=self.llm_temperature,
                 response_format={"type": "json_object"}
             )
             
