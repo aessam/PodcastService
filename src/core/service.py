@@ -17,6 +17,7 @@ from podcast_service.src.summarization.summarizer import Summarizer
 from podcast_service.src.utils.cache_manager import CacheManager
 from openai import OpenAI
 import io
+from tiktoken import get_encoding, encoding_for_model
 
 logger = logging.getLogger(__name__)
 
@@ -105,79 +106,78 @@ class PodcastService:
         # Remove extra whitespace but preserve some paragraph breaks
         text = '\n'.join(' '.join(line.split()) for line in text.split('\n') if line.strip())
         
-        # If text is small enough, return it as is
-        if len(text) <= max_chunk_size:
+        # Get token count for the entire text
+        total_tokens = self._estimate_tokens(text)
+        logger.info(f"Total tokens in text: {total_tokens}")
+        
+        # If text is within token limit, return it as is
+        if total_tokens <= 120000:  # Using 120k as safe limit for 128k context
+            logger.info("Text is within token limit, returning as single chunk")
             return [text]
         
+        # Calculate optimal chunk size in tokens
+        # Aim for chunks of about 100k tokens to leave room for system prompts and response
+        target_tokens = 100000
+        optimal_chunks = (total_tokens + target_tokens - 1) // target_tokens
+        optimal_token_size = total_tokens // optimal_chunks
+        
+        logger.info(f"Total tokens: {total_tokens}, Optimal chunks: {optimal_chunks}, Target tokens per chunk: {optimal_token_size}")
+        
         chunks = []
-        
-        # Calculate optimal chunk size to avoid very small last chunk
-        total_length = len(text)
-        optimal_chunks = (total_length + max_chunk_size - 1) // max_chunk_size
-        optimal_chunk_size = total_length // optimal_chunks
-        
-        logger.info(f"Total length: {total_length}, Optimal chunks: {optimal_chunks}, Optimal chunk size: {optimal_chunk_size}")
+        current_chunk = []
+        current_tokens = 0
         
         # First try to split by paragraphs
         paragraphs = text.split('\n')
-        current_chunk = []
-        current_size = 0
         
         for paragraph in paragraphs:
-            # Try to split paragraph into sentences
-            sentences = []
-            current = []
+            # Estimate tokens for this paragraph
+            paragraph_tokens = self._estimate_tokens(paragraph)
             
-            words = paragraph.split()
-            for i, word in enumerate(words):
-                current.append(word)
-                # Check if this word ends a sentence
-                if (word.endswith(('.', '!', '?')) or 
-                    (i < len(words) - 1 and words[i + 1][0].isupper())):
-                    sentences.append(' '.join(current))
-                    current = []
-            
-            if current:  # Add any remaining words as a sentence
-                sentences.append(' '.join(current))
-            
-            # Process each sentence
-            for sentence in sentences:
-                sentence_size = len(sentence) + 1  # +1 for space
-                
-                # If this single sentence is too big, split it into word groups
-                if sentence_size > optimal_chunk_size:
-                    if current_chunk:
-                        chunks.append(' '.join(current_chunk))
-                        current_chunk = []
-                        current_size = 0
-                    
-                    # Split long sentence into smaller parts
-                    words = sentence.split()
-                    part = []
-                    part_size = 0
-                    
-                    for word in words:
-                        word_size = len(word) + 1
-                        if part_size + word_size > optimal_chunk_size and part:
-                            chunks.append(' '.join(part))
-                            part = []
-                            part_size = 0
-                        part.append(word)
-                        part_size += word_size
-                    
-                    if part:
-                        current_chunk = part
-                        current_size = part_size
-                    continue
-                
-                # If adding this sentence would exceed the optimal chunk size
-                if current_size + sentence_size > optimal_chunk_size and current_chunk:
+            # If single paragraph exceeds chunk size, split it into sentences
+            if paragraph_tokens > optimal_token_size:
+                if current_chunk:
                     chunks.append(' '.join(current_chunk))
-                    current_chunk = [sentence]
-                    current_size = sentence_size
+                    current_chunk = []
+                    current_tokens = 0
+                
+                # Split paragraph into sentences
+                sentences = []
+                current = []
+                
+                words = paragraph.split()
+                for i, word in enumerate(words):
+                    current.append(word)
+                    # Check if this word ends a sentence
+                    if (word.endswith(('.', '!', '?')) or 
+                        (i < len(words) - 1 and words[i + 1][0].isupper())):
+                        sentences.append(' '.join(current))
+                        current = []
+                
+                if current:  # Add any remaining words as a sentence
+                    sentences.append(' '.join(current))
+                
+                # Process each sentence
+                for sentence in sentences:
+                    sentence_tokens = self._estimate_tokens(sentence)
+                    
+                    # If adding this sentence would exceed the optimal chunk size
+                    if current_tokens + sentence_tokens > optimal_token_size and current_chunk:
+                        chunks.append(' '.join(current_chunk))
+                        current_chunk = [sentence]
+                        current_tokens = sentence_tokens
+                    else:
+                        current_chunk.append(sentence)
+                        current_tokens += sentence_tokens
+            else:
+                # If adding this paragraph would exceed the optimal chunk size
+                if current_tokens + paragraph_tokens > optimal_token_size and current_chunk:
+                    chunks.append(' '.join(current_chunk))
+                    current_chunk = [paragraph]
+                    current_tokens = paragraph_tokens
                 else:
-                    current_chunk.append(sentence)
-                    current_size += sentence_size
+                    current_chunk.append(paragraph)
+                    current_tokens += paragraph_tokens
         
         # Add the last chunk if there is one
         if current_chunk:
@@ -186,31 +186,22 @@ class PodcastService:
         # Log chunk information
         logger.info(f"\nCreated {len(chunks)} chunks:")
         for i, chunk in enumerate(chunks, 1):
-            chunk_tokens = len(chunk.split())  # Simple token estimation
-            logger.info(f"Chunk {i}: {len(chunk)} chars, ~{chunk_tokens} tokens")
+            chunk_tokens = self._estimate_tokens(chunk)
+            logger.info(f"Chunk {i}: {len(chunk)} chars, {chunk_tokens} tokens")
         
         return chunks
 
     def _estimate_tokens(self, text: str) -> int:
-        """Estimate the number of tokens in a text (rough approximation)"""
-        # Detect language if not already detected
+        """Estimate the number of tokens in a text using TikToken"""
         try:
-            lang_code = self._detect_language_from_text(text[:1000])  # Use first 1000 chars for detection
-            
-            # Different character-to-token ratios for different scripts
-            if lang_code in ['ar', 'he', 'fa']:  # RTL languages
-                chars_per_token = 2
-            elif lang_code in ['zh', 'ja']:  # CJK languages
-                chars_per_token = 1
-            elif lang_code in ['ko']:  # Korean
-                chars_per_token = 1.5
-            else:  # Latin and other scripts
-                chars_per_token = 4
-            
-            return int(len(text) / chars_per_token)
+            # Use GPT-4's encoding since we're using it for summarization
+            encoding = encoding_for_model("gpt-4o")
+            token_count = len(encoding.encode(text))
+            logger.info(f"Estimated {token_count} tokens for text of length {len(text)}")
+            return token_count
         except Exception as e:
-            # Fallback to conservative estimate
-            logger.warning(f"Error in token estimation: {e}, using fallback")
+            # Fallback to conservative estimate if TikToken fails
+            logger.warning(f"Error in token estimation using TikToken: {e}, using fallback")
             return len(text) // 4
 
     def _merge_summaries(self, summaries: List[Dict]) -> Dict:
@@ -259,17 +250,19 @@ class PodcastService:
             source_language = self._detect_language_from_text(transcript_text)
             logger.info(f"Source language: {source_language}, Target language: {target_language}")
 
-            # Split text into manageable chunks
-            chunks = self._chunk_text(transcript_text, 4000)  # Adjust chunk size as needed
+            # Split text into manageable chunks - now using larger chunks for GPT-4
+            chunks = self._chunk_text(transcript_text, max_chunk_size=100000)
             
             summaries = []
-            for chunk in chunks:
+            for chunk_index, chunk in enumerate(chunks, 1):
+                logger.info(f"Processing chunk {chunk_index}/{len(chunks)}")
+                
                 # Create system prompt with language instruction
                 system_prompt = f"""You are a highly skilled AI that creates detailed summaries. 
                 The user will provide a transcript chunk, and you should generate a structured summary in {target_language}.
                 Focus on extracting key information and insights.
                 
-                Your response should be in JSON format with the following structure:
+                Your response MUST be valid JSON with the following structure:
                 {{
                     "comprehensive_summary": "A detailed summary of the main points and discussion",
                     "key_insights": ["List of key insights and takeaways"],
@@ -278,39 +271,85 @@ class PodcastService:
                     "topics": ["List of main topics discussed"]
                 }}
                 
-                All content must be in {target_language}."""
+                Ensure your response is properly formatted JSON. All content must be in {target_language}."""
 
                 # Create user prompt
-                user_prompt = f"Please analyze and summarize the following transcript chunk:\n\n{chunk}"
+                user_prompt = f"Please analyze and summarize the following transcript chunk (part {chunk_index}/{len(chunks)}):\n\n{chunk}"
 
-                # Generate summary using OpenAI
-                response = self.openai_client.chat.completions.create(
-                    model="gpt-4",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=1500
-                )
-
-                # Parse the response
                 try:
+                    # Generate summary using OpenAI
+                    response = self.openai_client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        temperature=0.7,
+                        max_tokens=4000,
+                        response_format={"type": "json_object"}  # Force JSON response
+                    )
+
+                    # Parse the response
                     summary_text = response.choices[0].message.content.strip()
-                    summary_dict = json.loads(summary_text)
-                    summaries.append(summary_dict)
-                except Exception as e:
-                    logger.error(f"Error parsing summary response: {e}")
+                    logger.debug(f"Raw API response for chunk {chunk_index}: {summary_text[:500]}...")  # Log first 500 chars
+                    
+                    try:
+                        summary_dict = json.loads(summary_text)
+                        
+                        # Validate required fields
+                        required_fields = ["comprehensive_summary", "key_insights", "action_items", "wisdom", "topics"]
+                        missing_fields = [field for field in required_fields if field not in summary_dict]
+                        
+                        if missing_fields:
+                            logger.warning(f"Missing fields in summary: {missing_fields}")
+                            # Initialize missing fields with empty values
+                            for field in missing_fields:
+                                summary_dict[field] = [] if field != "comprehensive_summary" else ""
+                        
+                        summaries.append(summary_dict)
+                        logger.info(f"Successfully processed chunk {chunk_index}")
+                        
+                    except json.JSONDecodeError as e:
+                        logger.error(f"JSON parsing error in chunk {chunk_index}: {e}")
+                        logger.error(f"Problematic response: {summary_text}")
+                        # Create a minimal valid summary for this chunk
+                        summaries.append({
+                            "comprehensive_summary": f"Error processing chunk {chunk_index}",
+                            "key_insights": [],
+                            "action_items": [],
+                            "wisdom": [],
+                            "topics": []
+                        })
+                        
+                except Exception as api_error:
+                    logger.error(f"API error processing chunk {chunk_index}: {api_error}")
                     continue
+
+            if not summaries:
+                logger.error("No valid summaries generated")
+                return {
+                    "comprehensive_summary": "Error generating summary",
+                    "key_insights": [],
+                    "action_items": [],
+                    "wisdom": [],
+                    "topics": []
+                }
 
             # Merge summaries from all chunks
             final_summary = self._merge_summaries(summaries)
+            logger.info("Successfully generated and merged all summaries")
             return final_summary
 
         except Exception as e:
             logger.error(f"Error generating structured summary: {e}")
             traceback.print_exc()
-            return None
+            return {
+                "comprehensive_summary": "Error generating summary",
+                "key_insights": [],
+                "action_items": [],
+                "wisdom": [],
+                "topics": []
+            }
 
     def _process_chunk(self, chunk: str, chunk_num: int, total_chunks: int, lang_code: str) -> Optional[Dict]:
         """Process a single chunk of text and generate a summary"""

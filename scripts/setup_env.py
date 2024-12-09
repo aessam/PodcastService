@@ -106,8 +106,8 @@ def setup_environment():
     
     # Optional settings
     print("\nOptional Settings (press Enter to use defaults):")
-    llm_model = input("LLM Model (default: gpt-4): ").strip() or "gpt-4"
-    llm_tokens = input("Max Tokens (default: 4096): ").strip() or "4096"
+    llm_model = input("LLM Model (default: gpt-4o): ").strip() or "gpt-4o"
+    llm_tokens = input("Max Tokens (default: 32096): ").strip() or "32096"
     llm_temp = input("Temperature (default: 0.8): ").strip() or "0.8"
     
     # Create .env file with user input

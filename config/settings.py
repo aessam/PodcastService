@@ -24,8 +24,8 @@ if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY environment variable is not set. Please check your .env file.")
 
 # LLM Settings
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4")
-LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o")
+LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "32096"))
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.8"))
 
 # History settings

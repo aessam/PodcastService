@@ -20,13 +20,13 @@ class Summarizer:
         
         # Initialize OpenAI client
         self.llm = ChatOpenAI(
-            model_name="gpt-4",
+            model_name="gpt-4o",
             temperature=0.5
         )
         
         # Configure text splitter for initial chunking
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=8000,  # Reduced chunk size
+            chunk_size=32000,  # Reduced chunk size
             chunk_overlap=800,
             length_function=len,
             separators=["\n\n", "\n", " ", ""]
