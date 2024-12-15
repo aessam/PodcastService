@@ -7,9 +7,18 @@ import os
 import json
 import urllib.parse
 import logging
+import atexit
 
 from podcast_service.src.core.service import PodcastService
 from podcast_service.config.settings import DATA_DIR
+from .routes.queue_routes import router as queue_router, service_manager
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Podcast Service API")
 
@@ -17,15 +26,37 @@ app = FastAPI(title="Podcast Service API")
 static_dir = Path(__file__).parent.parent.parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
+# Include queue routes
+app.include_router(queue_router)
+
 # Initialize service
 service = PodcastService(Path(DATA_DIR))
 
-# Configure logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services when the application starts"""
+    try:
+        logger.info("Starting application services...")
+        # Start queue workers
+        service_manager.start_workers()
+        logger.info("Queue workers started successfully")
+    except Exception as e:
+        logger.error(f"Error starting services: {e}", exc_info=True)
+        raise
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup when the application shuts down"""
+    try:
+        logger.info("Stopping application services...")
+        # Stop queue workers
+        service_manager.stop_workers()
+        logger.info("Queue workers stopped successfully")
+    except Exception as e:
+        logger.error(f"Error stopping services: {e}", exc_info=True)
+
+# Register cleanup on normal Python exit
+atexit.register(service_manager.stop_workers)
 
 # Serve index.html at root
 @app.get("/")
